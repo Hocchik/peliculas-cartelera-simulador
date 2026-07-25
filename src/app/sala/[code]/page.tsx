@@ -14,6 +14,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { normalizeRoomCode } from "@/lib/codes";
 import { getRoomState, type RoomState } from "@/lib/rooms";
 import { readDeviceToken } from "@/lib/session";
+import { cn } from "@/lib/utils";
 
 function PhaseView({ state }: { state: RoomState }) {
   switch (state.room.phase) {
@@ -61,8 +62,16 @@ export default async function SalaPage({ params }: { params: Promise<{ code: str
     );
   }
 
+  // Las llaves necesitan sitio: en escritorio van los versus y el cuadro a la par.
+  const wide = room.phase === "bracket";
+
   return (
-    <main className="mx-auto w-full max-w-4xl space-y-6 px-4 py-8">
+    <main
+      className={cn(
+        "mx-auto w-full space-y-6 px-4 py-8",
+        wide ? "max-w-6xl" : "max-w-4xl",
+      )}
+    >
       <LiveUpdates code={room.code} version={version} />
 
       <header className="space-y-3">

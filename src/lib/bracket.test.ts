@@ -180,57 +180,35 @@ describe("resolveMatch", () => {
   };
 
   it("gana quien tiene más votos", () => {
-    expect(resolveMatch(base, { a: 3, b: 1 }, 1)).toEqual({
-      winnerId: "a",
-      decidedBy: "votes",
-    });
-    expect(resolveMatch(base, { a: 1, b: 4 }, 1)).toEqual({
-      winnerId: "b",
-      decidedBy: "votes",
-    });
+    expect(resolveMatch(base, { a: 3, b: 1 })).toEqual({ winnerId: "a", decidedBy: "votes" });
+    expect(resolveMatch(base, { a: 1, b: 4 })).toEqual({ winnerId: "b", decidedBy: "votes" });
   });
 
   it("trata los votos ausentes como cero", () => {
-    expect(resolveMatch(base, { a: 1 }, 1)).toEqual({ winnerId: "a", decidedBy: "votes" });
+    expect(resolveMatch(base, { a: 1 })).toEqual({ winnerId: "a", decidedBy: "votes" });
   });
 
-  it("resuelve el empate con moneda al aire", () => {
-    const out = resolveMatch(base, { a: 2, b: 2 }, 1);
-    expect(out.decidedBy).toBe("coinflip");
-    expect(["a", "b"]).toContain(out.winnerId);
+  it("no resuelve los empates: los decide el host", () => {
+    expect(resolveMatch(base, { a: 2, b: 2 })).toBeNull();
   });
 
-  it("la moneda es determinista: repetir la llamada da el mismo ganador", () => {
-    const tally = { a: 2, b: 2 };
-    const first = resolveMatch(base, tally, 8080);
-    for (let i = 0; i < 20; i++) {
-      expect(resolveMatch(base, tally, 8080)).toEqual(first);
-    }
-  });
-
-  it("la moneda no siempre cae del mismo lado", () => {
-    const tally = { a: 1, b: 1 };
-    const winners = new Set(
-      Array.from({ length: 40 }, (_, slot) =>
-        resolveMatch({ ...base, slot }, tally, 555).winnerId,
-      ),
-    );
-    expect(winners).toEqual(new Set(["a", "b"]));
+  it("un cruce sin votos también queda empatado a cero", () => {
+    expect(resolveMatch(base, {})).toBeNull();
   });
 
   it("un cruce sin rival se resuelve como bye, sin mirar los votos", () => {
-    expect(resolveMatch({ ...base, movieBId: null }, {}, 1)).toEqual({
+    expect(resolveMatch({ ...base, movieBId: null }, {})).toEqual({
       winnerId: "a",
       decidedBy: "bye",
     });
-    expect(resolveMatch({ ...base, movieAId: null }, {}, 1)).toEqual({
+    expect(resolveMatch({ ...base, movieAId: null }, {})).toEqual({
       winnerId: "b",
       decidedBy: "bye",
     });
   });
 
   it("falla si el cruce no tiene participantes", () => {
-    expect(() => resolveMatch({ ...base, movieAId: null, movieBId: null }, {}, 1)).toThrow();
+    expect(() => resolveMatch({ ...base, movieAId: null, movieBId: null }, {})).toThrow();
   });
 });
 
@@ -283,8 +261,8 @@ describe("torneo completo", () => {
         if (m.winnerId) return m;
         // Voto arbitrario pero determinista para la simulación.
         const tally = { [m.movieAId!]: 2, [m.movieBId!]: 1 };
-        const { winnerId, decidedBy } = resolveMatch(m, tally, 2026);
-        return { ...m, winnerId, decidedBy, status: "decided" as const };
+        const outcome = resolveMatch(m, tally)!;
+        return { ...m, ...outcome, status: "decided" as const };
       });
       round = buildNextRound(decided);
       played += round.length;
@@ -292,8 +270,7 @@ describe("torneo completo", () => {
 
     expect(played).toBe(15);
     expect(round[0].round).toBe(4);
-    const { winnerId } = resolveMatch(round[0], { [round[0].movieAId!]: 1 }, 2026);
-    expect(winnerId).toBeTruthy();
+    expect(resolveMatch(round[0], { [round[0].movieAId!]: 1 })?.winnerId).toBeTruthy();
   });
 
   it("con cualquier cantidad entre 2 y 16 termina en una sola campeona", () => {
@@ -302,14 +279,25 @@ describe("torneo completo", () => {
       while (round.length > 1) {
         const decided = round.map((m) => {
           if (m.winnerId) return m;
-          const tally = { [m.movieAId!]: 1, [m.movieBId!]: 1 }; // siempre empate → moneda
-          const { winnerId, decidedBy } = resolveMatch(m, tally, n);
-          return { ...m, winnerId, decidedBy, status: "decided" as const };
+          const outcome = resolveMatch(m, { [m.movieBId!]: 1 })!;
+          return { ...m, ...outcome, status: "decided" as const };
         });
         round = buildNextRound(decided);
       }
       expect(round).toHaveLength(1);
       expect(round[0].round).toBe(totalRounds(bracketSize(n)));
     }
+  });
+
+  it("un empate deja la ronda sin poder avanzar hasta que alguien decida", () => {
+    const round = initialMatches(drawSlots(nominees(4), 3));
+    const empatados = round.map((m) => ({
+      ...m,
+      outcome: resolveMatch(m, { [m.movieAId!]: 1, [m.movieBId!]: 1 }),
+    }));
+
+    // Ninguno se resuelve solo, así que el cuadro no puede seguir.
+    expect(empatados.every((m) => m.outcome === null)).toBe(true);
+    expect(() => buildNextRound(round)).toThrow();
   });
 });

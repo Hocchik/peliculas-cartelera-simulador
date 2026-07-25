@@ -1,3 +1,5 @@
+import { Scale } from "lucide-react";
+
 import { forceCloseRound } from "@/app/sala/[code]/actions";
 import { BracketGrid } from "@/components/bracket/bracket-grid";
 import { VoteCard } from "@/components/bracket/vote-card";
@@ -10,41 +12,55 @@ export function BracketPhase({ state }: { state: RoomState }) {
   const { room, me, matches, rounds, roundProgress } = state;
   if (!me) return null;
 
-  const open = matches.filter((match) => match.status === "open");
-  const round = open[0]?.round ?? rounds;
-  const size = 2 ** rounds;
+  const live = matches.filter(
+    (match) => match.status === "open" || match.status === "tiebreak",
+  );
+  const open = live.filter((match) => match.status === "open");
+  const ties = live.filter((match) => match.status === "tiebreak");
+  const round = live[0]?.round ?? rounds;
 
-  const mine = open.filter((match) => match.myChoice === null);
+  const unvoted = open.filter((match) => match.myChoice === null);
   const missing = roundProgress ? roundProgress.expected - roundProgress.cast : 0;
 
   return (
-    <>
-      <Card>
-        <CardHeader>
-          <CardTitle>{roundName(round, size)}</CardTitle>
-          <CardDescription>
-            {mine.length > 0
-              ? `Te faltan ${mine.length} ${mine.length === 1 ? "versus" : "versus"} por votar.`
-              : "Ya votaste todo. La ronda avanza cuando voten los demás."}
-          </CardDescription>
-        </CardHeader>
-        {roundProgress && (
-          <CardContent className="text-muted-foreground text-sm">
-            {roundProgress.cast} de {roundProgress.expected} votos emitidos
-          </CardContent>
-        )}
-      </Card>
+    <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_22rem] lg:items-start lg:gap-6">
+      <div className="space-y-5">
+        <Card>
+          <CardHeader>
+            <CardTitle>{roundName(round, 2 ** rounds)}</CardTitle>
+            <CardDescription>
+              {ties.length > 0 && open.length === 0
+                ? me.isHost
+                  ? `Hay ${ties.length} ${ties.length === 1 ? "empate" : "empates"} esperando tu decisión.`
+                  : `Hay ${ties.length} ${ties.length === 1 ? "empate" : "empates"}: los desempata el host.`
+                : unvoted.length > 0
+                  ? `Te faltan ${unvoted.length} por votar.`
+                  : "Ya votaste todo. La ronda avanza cuando voten los demás."}
+            </CardDescription>
+          </CardHeader>
+          {roundProgress && (
+            <CardContent className="text-muted-foreground text-sm">
+              {roundProgress.cast} de {roundProgress.expected} votos emitidos
+            </CardContent>
+          )}
+        </Card>
 
-      {open.length > 0 && (
+        {ties.length > 0 && (
+          <p className="text-primary flex items-center gap-2 text-sm font-medium">
+            <Scale className="size-4" />
+            {me.isHost
+              ? "Elige quién pasa en los empates para que siga la ronda."
+              : "Esperando a que el host desempate."}
+          </p>
+        )}
+
         <ul className="space-y-5">
-          {open.map((match) => (
-            <VoteCard key={match.id} code={room.code} match={match} />
+          {[...ties, ...open].map((match) => (
+            <VoteCard key={match.id} code={room.code} match={match} isHost={me.isHost} />
           ))}
         </ul>
-      )}
 
-      {me.isHost && missing > 0 && (
-        <div className="border-t pt-4">
+        {me.isHost && missing > 0 && open.length > 0 && (
           <HostButton
             code={room.code}
             action={forceCloseRound}
@@ -52,17 +68,19 @@ export function BracketPhase({ state }: { state: RoomState }) {
             variant="secondary"
             confirm={`Faltan ${missing} ${
               missing === 1 ? "voto" : "votos"
-            }. Los ${open.length} cruces abiertos se resolverán sin ellos, y los que queden empatados los decide la moneda al aire. Esto no se puede deshacer. ¿Cerramos?`}
+            }. Los ${open.length} versus abiertos se resolverán con lo que haya votado, y los que queden empatados los tendrás que decidir tú. ¿Cerramos?`}
           />
-        </div>
-      )}
-
-      <div className="border-t pt-4">
-        <h2 className="text-muted-foreground mb-2 text-xs font-semibold tracking-wide uppercase">
-          El cuadro
-        </h2>
-        <BracketGrid matches={matches} rounds={rounds} />
+        )}
       </div>
-    </>
+
+      <aside className="mt-8 lg:sticky lg:top-6 lg:mt-0">
+        <h2 className="text-muted-foreground mb-3 text-xs font-semibold tracking-wide uppercase">
+          Cómo va el cuadro
+        </h2>
+        <div className="lg:max-h-[calc(100svh-8rem)] lg:overflow-y-auto lg:pr-1">
+          <BracketGrid matches={matches} rounds={rounds} layout="stack" />
+        </div>
+      </aside>
+    </div>
   );
 }

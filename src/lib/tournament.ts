@@ -121,34 +121,68 @@ export async function pendingVotes(
 }
 
 /**
- * Resuelve la ronda abierta y arma la siguiente. Los cruces sin votos se
- * deciden igual: con empate a cero manda la moneda al aire, que es
- * determinista a partir de `(tiebreak_seed, round, slot)`.
+ * Cierra los cruces abiertos de la ronda. Los que quedan empatados NO se
+ * resuelven al azar: pasan a `tiebreak` y esperan a que el host decida.
  */
-export async function resolveOpenRound(room: Room): Promise<{ finished: boolean }> {
+export async function resolveOpenRound(room: Room): Promise<{
+  finished: boolean;
+  ties: number;
+}> {
   const all = await loadMatches(room.id);
   const round = currentRound(all);
-  if (round.length === 0) return { finished: true };
+  if (round.length === 0) return { finished: true, ties: 0 };
 
-  const open = round.filter((m) => m.status === "open");
-  const tallies = await talliesFor(open.map((m) => m.id));
+  const open = round.filter((match) => match.status === "open");
+  const tallies = await talliesFor(open.map((match) => match.id));
 
-  const decided = round.map((match) => {
-    if (match.status === "decided") return match;
-    const outcome = resolveMatch(match, tallies.get(match.id) ?? {}, room.tiebreakSeed);
-    return { ...match, ...outcome, status: "decided" as const };
-  });
-
-  for (const match of decided) {
-    if (match.status === "decided" && all.find((m) => m.id === match.id)?.status !== "decided") {
+  let ties = 0;
+  for (const match of open) {
+    const outcome = resolveMatch(match, tallies.get(match.id) ?? {});
+    if (outcome) {
       await db()
         .update(matches)
-        .set({ winnerId: match.winnerId, decidedBy: match.decidedBy, status: "decided" })
+        .set({ winnerId: outcome.winnerId, decidedBy: outcome.decidedBy, status: "decided" })
         .where(eq(matches.id, match.id));
+    } else {
+      ties++;
+      await db().update(matches).set({ status: "tiebreak" }).where(eq(matches.id, match.id));
     }
   }
 
-  const next = buildNextRound(decided);
+  const advanced = await advanceIfComplete(room);
+  return { ...advanced, ties };
+}
+
+/**
+ * Decisión del host sobre un cruce: desempata, y también puede hacer pasar a la
+ * que perdió la votación. Es un poder deliberado y queda registrado como
+ * `decided_by = 'host'` para que el cuadro no mienta sobre cómo se resolvió.
+ */
+export async function decideMatchByHost(
+  room: Room,
+  matchId: string,
+  winnerId: string,
+): Promise<{ finished: boolean }> {
+  await db()
+    .update(matches)
+    .set({ winnerId, decidedBy: "host", status: "decided" })
+    .where(eq(matches.id, matchId));
+
+  return advanceIfComplete(room);
+}
+
+/**
+ * Si ya no queda ningún cruce sin resolver, arma la ronda siguiente o cierra el
+ * torneo. Vuelve a salir sin hacer nada si algo sigue pendiente, así que se
+ * puede llamar después de cada voto y de cada decisión del host.
+ */
+async function advanceIfComplete(room: Room): Promise<{ finished: boolean }> {
+  const all = await loadMatches(room.id);
+  if (all.some((match) => match.status !== "decided")) return { finished: false };
+
+  const lastRound = Math.max(...all.map((match) => match.round));
+  const next = buildNextRound(all.filter((match) => match.round === lastRound));
+
   if (next.length > 0) {
     await db()
       .insert(matches)
@@ -165,7 +199,7 @@ export async function resolveOpenRound(room: Room): Promise<{ finished: boolean 
     return { finished: false };
   }
 
-  await buildScreenings(room, [...all.filter((m) => m.round !== round[0].round), ...decided]);
+  await buildScreenings(room, all);
   return { finished: true };
 }
 
@@ -174,6 +208,14 @@ export async function resolveOpenRound(room: Room): Promise<{ finished: boolean 
  * en ese orden. Con cuadros de 2 o 4 simplemente hay menos posiciones.
  */
 async function buildScreenings(room: Room, all: Match[]): Promise<void> {
+  // `advanceIfComplete` puede volver a correr sobre un torneo ya terminado.
+  const [existing] = await db()
+    .select({ id: screenings.id })
+    .from(screenings)
+    .where(eq(screenings.roomId, room.id))
+    .limit(1);
+  if (existing) return;
+
   const last = Math.max(...all.map((m) => m.round));
   const final = all.find((m) => m.round === last);
   if (!final?.winnerId) return;
@@ -199,7 +241,7 @@ async function buildScreenings(room: Room, all: Match[]): Promise<void> {
 export async function closeRoundIfComplete(
   room: Room,
   memberCount: number,
-): Promise<{ finished: boolean } | null> {
+): Promise<{ finished: boolean; ties: number } | null> {
   const { cast, expected } = await pendingVotes(room, memberCount);
   if (expected === 0 || cast < expected) return null;
   return resolveOpenRound(room);

@@ -57,16 +57,6 @@ export function createRng(seed: number): () => number {
   };
 }
 
-/** Combina varios enteros en una semilla (FNV-1a sobre palabras de 32 bits). */
-function mix(...values: number[]): number {
-  let h = 0x811c9dc5;
-  for (const value of values) {
-    h ^= value >>> 0;
-    h = Math.imul(h, 0x01000193) >>> 0;
-  }
-  return h >>> 0;
-}
-
 function shuffle<T>(items: readonly T[], rng: () => number): T[] {
   const out = [...items];
   for (let i = out.length - 1; i > 0; i--) {
@@ -192,15 +182,13 @@ export function initialMatches(slots: readonly Slot[]): BracketMatch[] {
 }
 
 /**
- * Resuelve un cruce. El empate se decide con una moneda al aire derivada de
- * `(tiebreakSeed, round, slot)`: la animación del cliente muestra este
- * resultado, nunca lo genera. Un refresh no puede cambiar quién ganó.
+ * Resuelve un cruce por votos. Devuelve `null` si hay empate: en ese caso no lo
+ * decide el azar sino el host, desde la propia pantalla del versus.
  */
 export function resolveMatch(
-  match: Pick<BracketMatch, "round" | "slot" | "movieAId" | "movieBId">,
+  match: Pick<BracketMatch, "movieAId" | "movieBId">,
   tally: Tally,
-  tiebreakSeed: number,
-): MatchOutcome {
+): MatchOutcome | null {
   const { movieAId, movieBId } = match;
 
   if (movieAId === null && movieBId === null) {
@@ -214,9 +202,7 @@ export function resolveMatch(
 
   if (votesA > votesB) return { winnerId: movieAId, decidedBy: "votes" };
   if (votesB > votesA) return { winnerId: movieBId, decidedBy: "votes" };
-
-  const flip = createRng(mix(tiebreakSeed, match.round, match.slot))();
-  return { winnerId: flip < 0.5 ? movieAId : movieBId, decidedBy: "coinflip" };
+  return null;
 }
 
 /**

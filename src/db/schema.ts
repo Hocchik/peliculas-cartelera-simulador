@@ -26,9 +26,19 @@ export const roomPhase = pgEnum("room_phase", [
   "finished",
 ]);
 
-export const matchStatus = pgEnum("match_status", ["pending", "open", "decided"]);
+/** `tiebreak` = empatado en votos, esperando que el host decida. */
+export const matchStatus = pgEnum("match_status", [
+  "pending",
+  "open",
+  "decided",
+  "tiebreak",
+]);
 
-/** Cómo se resolvió un versus. `bye` = pasó sin rival por cuadro incompleto. */
+/**
+ * Cómo se resolvió un versus. `bye` = pasó sin rival por cuadro incompleto.
+ * `coinflip` ya no se produce: los empates los decide el host. Se conserva por
+ * las salas que se jugaron con la regla anterior.
+ */
 export const decidedBy = pgEnum("decided_by", ["votes", "coinflip", "host", "bye"]);
 
 export type RoomSettings = {

@@ -41,7 +41,8 @@ El **host** (quien creó la sala) es el único que avanza de fase y el único qu
 | Acceso | Código de sala + apodo. Sin emails ni contraseñas. Identidad en cookie del dispositivo. |
 | Modo de decisión | Híbrido: encuesta de siembra → bracket. **No** es sorteo 100% aleatorio. |
 | Ritmo | En vivo, todos juntos. La UI se actualiza para todos mientras votan. |
-| Empates | Moneda al aire animada, **decidida en el servidor**. |
+| Empates | **Los decide el host** desde la pantalla del versus. No hay azar. |
+| Poder del host | Puede hacer pasar a la que perdió la votación, en la ronda en curso. |
 | Resultado | El podio completo arma la cartelera, no solo la campeona. |
 | Cupo de nominaciones | **4 por invitado**; el host no tiene tope, porque rellena y modera. |
 | Autoría de nominaciones | Se guarda, pero **solo la ve el host**, para su filtro previo. |
@@ -152,7 +153,7 @@ Si algún día se quieren salas recurrentes, esa tabla se reintroduce y todo lo 
 `phase` ∈ `lobby | nominating | seeding | draw | bracket | finished`
 Las salas se crean directamente en `nominating`: el lobby y la nominación son la misma
 pantalla, así que `lobby` está en el enum pero sin usar.
-`status` (matches) ∈ `pending | open | decided`
+`status` (matches) ∈ `pending | open | decided | tiebreak`
 `decided_by` ∈ `votes | coinflip | host | bye`
 `settings` ∈ `{ maxPerPerson?: number }` — sin límite por defecto.
 
@@ -187,10 +188,10 @@ UNIQUE (screenings.room_id, position)
 4. **`movies.added_by` solo se expone al host.** El serializer de la lista de nominaciones
    omite el campo para todos los demás participantes. Es una regla de servidor, no de UI: no
    basta con ocultarlo en el render.
-5. **El azar vive en el servidor y es reproducible.** `rooms.draw_seed` y `rooms.tiebreak_seed`
-   se guardan al crear la sala. El sorteo y la moneda al aire se derivan de
-   `(seed, match.id)` con un PRNG determinista. La animación del cliente **muestra** un
-   resultado ya decidido; nunca lo genera. Sin esto, un refresh cambiaría el ganador.
+5. **El azar vive en el servidor y es reproducible.** El sorteo se deriva de `rooms.draw_seed`
+   con un PRNG determinista, así que el cuadro es auditable y un refresh no lo cambia. La
+   animación del cliente **muestra** un resultado ya decidido; nunca lo genera.
+   (`rooms.tiebreak_seed` quedó sin uso al pasar los empates al host. Se conserva la columna.)
 6. **Solo el host cambia `room.phase`** y solo el host modera. Verificar `is_host` en el
    servidor en cada transición y en cada borrado ajeno.
 7. **`src/lib/bracket.ts` es puro** (sin I/O, sin `Date.now()`, sin `Math.random()`): recibe
@@ -232,10 +233,15 @@ todos sus matches, o cuando el host fuerza el cierre.
 diálogo de confirmación** que diga cuántas personas faltan y qué matches se resolverán sin sus
 votos. Es una acción irreversible disparable por error desde el móvil.
 
-**Empate en un match.** Moneda al aire derivada de `(tiebreak_seed, round, slot)` — no del
-UUID del match, que no es un número y no serviría de semilla —,
-`decided_by = 'coinflip'`. La UI reproduce una animación de moneda que aterriza en el
-resultado guardado.
+**Empate en un match.** No lo resuelve el azar. `resolveMatch` devuelve `null`, el cruce pasa
+a `status = 'tiebreak'` y **la ronda no avanza hasta que el host elija**. Ahí sí se revela el
+marcador de ese cruce: la votación cerró y es justo lo que el host necesita para decidir.
+
+**Poder del host sobre un cruce.** Con `decideMatch` el host puede resolver cualquier cruce de
+la ronda en curso, incluso haciendo pasar a la que perdió la votación. Queda grabado como
+`decided_by = 'host'` y el cuadro lo muestra: el registro no miente sobre cómo se resolvió.
+Solo alcanza a la ronda en juego — una vez armada la siguiente, los ganadores ya se
+propagaron y cambiarlos dejaría el cuadro inconsistente.
 
 **Resultado.** No hay una sola ganadora: campeona, subcampeona y las dos semifinalistas pasan a
 `screenings` como las próximas cuatro noches, en ese orden.
@@ -244,9 +250,12 @@ resultado guardado.
 
 ## 7. Convenciones
 
-- **Mobile-first sin excepción.** Se vota desde el celular en el sofá. El bracket completo en
-  pantalla chica es el problema de UI más difícil del proyecto: resolverlo con scroll horizontal
-  por rondas + vista "match actual" a pantalla completa, no encogiendo el cuadro entero.
+- **Mobile-first sin excepción.** Se vota desde el celular en el sofá. `BracketGrid` tiene dos
+  disposiciones: `columns` (rondas en horizontal, como se lee un cuadro de Mundial) para el
+  sorteo y el resultado, y `stack` (apilado en vertical) para el costado de las llaves y el
+  móvil, donde un scroll horizontal dentro de una página que ya scrollea es incómodo.
+- **En escritorio las llaves van a dos columnas**: los versus a la izquierda y el cuadro a la
+  derecha, pegado con `sticky`. Por eso esa fase usa `max-w-6xl` y el resto `max-w-4xl`.
 - Mutaciones vía **Server Actions**; los Route Handlers quedan para el proxy de TMDB.
 - Toda la copy de la interfaz en **español**, tono informal ("Tu voto", "Faltan 3 por votar").
 - **Títulos bilingües.** Buscar en TMDB con `language=es-MX` y guardar `title` (español) y
@@ -281,7 +290,9 @@ sorteo animado, bracket con votación en vivo, podio. *Con esto ya resuelve el p
   necesita la UI).
 - Actualización en vivo por latido; tope de 4 nominaciones por invitado, host sin tope.
 - Las rondas se cierran solas cuando votan todos; el host puede forzarlas antes.
-- 42 tests unitarios + 5 de integración contra Neon. `typecheck`, `lint` y `build` pasan.
+- Empates a la espera del host, y el host puede hacer pasar a la que perdió.
+- Desplegado en **mundial-de-pelis.vercel.app**.
+- 42 tests unitarios + 9 de integración contra Neon. `typecheck`, `lint` y `build` pasan.
 
 **Verificado contra el servidor real**, no solo compilado:
 
@@ -291,16 +302,16 @@ sorteo animado, bracket con votación en vivo, podio. *Con esto ya resuelve el p
 - Cada fase renderiza lo suyo y los botones de host no aparecen para los invitados.
 - **Invariante 3 comprobada en el payload**: con un cruce abierto y un voto emitido, el
   cliente recibe `"tally":null` y no hay ningún conteo real; el marcador aparece recién
-  cuando el cruce cierra.
+  cuando el cruce cierra o queda empatado.
+- Los controles del host aparecen solo para el host, comprobado en el HTML de ambos.
 - Proxy de TMDB: 401 sin cookie, 401 con firma falsificada, 200 con cookie válida.
 
 **Siguientes pasos**
 
-1. Animación de la moneda al aire (hoy el empate se resuelve bien, pero se ve como un
-   resultado más; falta el momento).
-2. Reemplazar `window.confirm` del `HostButton` por un `AlertDialog` de shadcn.
-3. Fechas en la cartelera y compartir con imagen OG para WhatsApp.
-4. Deploy en Vercel.
+1. Reemplazar `window.confirm` del `HostButton` por un `AlertDialog` de shadcn.
+2. Fechas en la cartelera y compartir con imagen OG para WhatsApp.
+3. Que el host pueda reabrir un cruce ya cerrado (hoy su poder termina cuando la ronda
+   avanza, para no dejar el cuadro inconsistente).
 
 **Deuda conocida**
 

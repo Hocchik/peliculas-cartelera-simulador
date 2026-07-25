@@ -23,6 +23,7 @@ import { readDeviceToken } from "@/lib/session";
 import { getMovie } from "@/lib/tmdb";
 import {
   closeRoundIfComplete,
+  decideMatchByHost,
   generateBracket,
   resolveOpenRound,
 } from "@/lib/tournament";
@@ -336,6 +337,57 @@ export async function castVote(input: {
 
   const closed = await closeRoundIfComplete(room, await memberCount(room.id));
   if (closed?.finished) {
+    await db().update(rooms).set({ phase: "finished" }).where(eq(rooms.id, room.id));
+  }
+
+  revalidatePath(`/sala/${room.code}`);
+  return { ok: true };
+}
+
+const decideSchema = z.object({
+  code: z.string().min(1),
+  matchId: z.string().uuid(),
+  winnerMovieId: z.string().uuid(),
+});
+
+/**
+ * El host resuelve un cruce a mano. Sirve para desempatar y también para hacer
+ * pasar a la que perdió la votación: es un poder deliberado, exclusivo del host
+ * y limitado a la ronda que se está jugando — una vez armada la siguiente, los
+ * ganadores ya se propagaron y cambiarlos dejaría el cuadro inconsistente.
+ */
+export async function decideMatch(input: {
+  code: string;
+  matchId: string;
+  winnerMovieId: string;
+}): Promise<ActionResult> {
+  const parsed = decideSchema.safeParse(input);
+  if (!parsed.success) return { ok: false, error: "Datos inválidos" };
+
+  const auth = await requireHost(parsed.data.code);
+  if ("error" in auth) return { ok: false, error: auth.error };
+  const { room } = auth;
+
+  if (room.phase !== "bracket") {
+    return { ok: false, error: "No hay versus en juego" };
+  }
+
+  const [match] = await db()
+    .select()
+    .from(matches)
+    .where(and(eq(matches.id, parsed.data.matchId), eq(matches.roomId, room.id)))
+    .limit(1);
+
+  if (!match) return { ok: false, error: "Ese cruce no existe" };
+  if (match.status === "decided") {
+    return { ok: false, error: "Ese cruce ya está cerrado y la ronda avanzó" };
+  }
+  if (![match.movieAId, match.movieBId].includes(parsed.data.winnerMovieId)) {
+    return { ok: false, error: "Esa película no juega este cruce" };
+  }
+
+  const { finished } = await decideMatchByHost(room, match.id, parsed.data.winnerMovieId);
+  if (finished) {
     await db().update(rooms).set({ phase: "finished" }).where(eq(rooms.id, room.id));
   }
 

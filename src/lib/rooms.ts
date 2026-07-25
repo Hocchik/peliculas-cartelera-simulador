@@ -212,12 +212,16 @@ export async function getRoomState(
         for (const row of rowsVotes) myVotes.set(row.matchId, row.choice);
       }
 
-      const decidedIds = allMatches.filter((m) => m.status === "decided").map((m) => m.id);
-      if (decidedIds.length > 0) {
+      // Un cruce empatado ya cerró la votación, así que su marcador puede verse:
+      // es justamente lo que el host necesita para decidir.
+      const closedIds = allMatches
+        .filter((m) => m.status === "decided" || m.status === "tiebreak")
+        .map((m) => m.id);
+      if (closedIds.length > 0) {
         const counted = await db()
           .select({ matchId: votes.matchId, choice: votes.choiceMovieId, total: count() })
           .from(votes)
-          .where(inArray(votes.matchId, decidedIds))
+          .where(inArray(votes.matchId, closedIds))
           .groupBy(votes.matchId, votes.choiceMovieId);
         for (const row of counted) {
           const tally = tallies.get(row.matchId) ?? {};
@@ -240,7 +244,7 @@ export async function getRoomState(
         status: match.status,
         myChoice: myVotes.get(match.id) ?? null,
         tally:
-          match.status === "decided"
+          match.status === "decided" || match.status === "tiebreak"
             ? {
                 a: match.movieAId ? (tally?.[match.movieAId] ?? 0) : 0,
                 b: match.movieBId ? (tally?.[match.movieBId] ?? 0) : 0,
