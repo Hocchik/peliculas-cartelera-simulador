@@ -79,7 +79,8 @@ npm run dev          # desarrollo
 npm run build        # build de producción
 npm run lint         # eslint
 npm run typecheck    # tsc --noEmit
-npm test             # vitest run
+npm test             # vitest run — unitarios, sin red ni base
+npm run test:db      # vitest run --config vitest.integration.config.ts (toca Neon)
 npm run db:generate  # drizzle-kit generate  (tras tocar src/db/schema.ts)
 npm run db:migrate   # aplicar migraciones
 npm run db:studio    # inspeccionar la BD
@@ -109,13 +110,18 @@ src/
     api/tmdb/search/route.ts     # proxy de búsqueda; exige cookie válida
     api/sala/[code]/pulse/route.ts  # huella del estado para el polling
   components/
+    phases/                      # una por room.phase; page.tsx solo despacha
     movie/                       # MovieSearch, PosterImage, RemoveMovieButton
-    room/                        # CreateRoomForm, JoinRoomForm, RoomCode, LiveUpdates
+    seeding/                     # ApprovalCard
+    bracket/                     # BracketGrid, VoteCard
+    room/                        # CreateRoomForm, JoinRoomForm, RoomCode, LiveUpdates, HostButton
     ui/                          # shadcn
   db/
     schema.ts  index.ts  migrations/
   lib/
     bracket.ts     # cuadro, siembra, avance de rondas (PURO, testeado)
+    tournament.ts  # el cuadro contra la base: generar, resolver ronda, podio
+    room-types.ts  # tipos de vista compartidos con el cliente
     tmdb.ts        # cliente de TMDB, `server-only`
     tmdb-types.ts  # tipos compartidos con el cliente
     poster.ts      # URLs de póster, seguro en el cliente
@@ -268,31 +274,33 @@ sorteo animado, bracket con votación en vivo, podio. *Con esto ya resuelve el p
 
 ## 9. Estado actual
 
-**Funcionando de punta a punta**
+**El flujo completo funciona**: nominar → sembrar → sortear → votar los versus → cartelera.
 
-- Neon conectado, migraciones `0000` y `0001` aplicadas contra la base real.
-- TMDB conectado con el token v4. Búsqueda verificada: devuelve `Interestelar` /
-  `Interstellar`, exactamente el par bilingüe que necesita la UI.
-- Fase 1 completa: crear sala, entrar con código + apodo, buscar en TMDB, nominar hasta 16,
-  retirar nominaciones (las propias cualquiera; las ajenas solo el host).
-- Actualización en vivo: lo que nomina otro aparece solo, sin recargar.
-- Tope de 4 nominaciones por invitado; el host sin tope.
-- `src/lib/bracket.ts` + 30 tests: PRNG determinista, siembra estándar, byes a las cabezas de
-  serie, moneda al aire reproducible, avance de rondas.
-- `npm run typecheck`, `npm run lint`, `npm test` y `npm run build` pasan.
+- Neon conectado, migraciones `0000` y `0001` aplicadas.
+- TMDB conectado con el token v4 (`Interestelar` / `Interstellar`: el par bilingüe que
+  necesita la UI).
+- Actualización en vivo por latido; tope de 4 nominaciones por invitado, host sin tope.
+- Las rondas se cierran solas cuando votan todos; el host puede forzarlas antes.
+- 42 tests unitarios + 5 de integración contra Neon. `typecheck`, `lint` y `build` pasan.
 
-**Probado contra el servidor real**, no solo compilado: landing 200, sala existente 200 con
-formulario de apodo, código en minúsculas resuelto por `normalizeRoomCode`, sala inexistente
-404, proxy de TMDB 401 sin cookie y 401 con firma falsificada, 200 con cookie válida.
+**Verificado contra el servidor real**, no solo compilado:
+
+- Torneo completo con 11 películas: 8 cruces en la primera ronda, 5 byes, la más aprobada
+  pasa sin jugar, 15 cruces en total, 4 rondas, podio de 4 en la cartelera.
+- Resolver una ronda ya cerrada no duplica cruces ni cartelera.
+- Cada fase renderiza lo suyo y los botones de host no aparecen para los invitados.
+- **Invariante 3 comprobada en el payload**: con un cruce abierto y un voto emitido, el
+  cliente recibe `"tally":null` y no hay ningún conteo real; el marcador aparece recién
+  cuando el cruce cierra.
+- Proxy de TMDB: 401 sin cookie, 401 con firma falsificada, 200 con cookie válida.
 
 **Siguientes pasos**
 
-1. Fase de siembra: pantalla de aprobación + `seed_votes` + acción para cerrarla (solo host).
-2. Sorteo: generar `matches` de la ronda 1 con `drawSlots` + `initialMatches`, con animación.
-3. Llaves: pantalla de versus, `votes`, cierre de ronda, cierre forzado con confirmación,
-   animación de moneda al aire.
-4. Cartelera: podio → `screenings`.
-5. Polling con SWR para que el cuadro se mueva en vivo para todos.
+1. Animación de la moneda al aire (hoy el empate se resuelve bien, pero se ve como un
+   resultado más; falta el momento).
+2. Reemplazar `window.confirm` del `HostButton` por un `AlertDialog` de shadcn.
+3. Fechas en la cartelera y compartir con imagen OG para WhatsApp.
+4. Deploy en Vercel.
 
 **Deuda conocida**
 
@@ -301,6 +309,10 @@ formulario de apodo, código en minúsculas resuelto por `normalizeRoomCode`, sa
   Revisar cuando suban las versiones de `eslint-config-next` y `drizzle-kit`.
 - Las Server Actions de sala devuelven `{ ok, error }` en vez de lanzar: el cliente muestra el
   mensaje tal cual, así que los textos de error son copy visible para el usuario.
+- El driver HTTP de Neon no da transacciones interactivas. Donde hace falta atomicidad se
+  compensa a mano (ver `createRoom`). `resolveOpenRound` no es atómica: si se cortara a mitad,
+  quedarían cruces resueltos sin la ronda siguiente. Se arregla volviendo a cerrar la ronda.
+- Una sala terminada no se puede reabrir ni volver a jugar; hay que crear otra.
 
 ---
 

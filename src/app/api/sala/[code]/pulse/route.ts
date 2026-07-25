@@ -1,9 +1,8 @@
-import { and, count, eq, max } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import type { NextRequest } from "next/server";
 
-import { db, movies, participants } from "@/db";
-import { roomVersion } from "@/lib/nominations";
-import { findRoomByCode } from "@/lib/rooms";
+import { db, participants } from "@/db";
+import { computeRoomVersion, findRoomByCode } from "@/lib/rooms";
 import { readDeviceToken } from "@/lib/session";
 
 /**
@@ -34,22 +33,5 @@ export async function GET(_request: NextRequest, ctx: { params: Promise<{ code: 
     return Response.json({ error: "No estás en esta sala" }, { status: 403 });
   }
 
-  const [movieStats] = await db()
-    .select({ total: count(), last: max(movies.createdAt) })
-    .from(movies)
-    .where(eq(movies.roomId, room.id));
-
-  const [memberStats] = await db()
-    .select({ total: count() })
-    .from(participants)
-    .where(eq(participants.roomId, room.id));
-
-  return Response.json({
-    version: roomVersion({
-      phase: room.phase,
-      movieCount: movieStats.total,
-      lastMovieAt: movieStats.last,
-      memberCount: memberStats.total,
-    }),
-  });
+  return Response.json({ version: await computeRoomVersion(room) });
 }

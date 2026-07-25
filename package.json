@@ -12,7 +12,8 @@
     "test:watch": "vitest",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
-    "db:studio": "drizzle-kit studio"
+    "db:studio": "drizzle-kit studio",
+    "test:db": "vitest run --config vitest.integration.config.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.6.0",

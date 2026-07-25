@@ -1,19 +1,34 @@
 import { notFound } from "next/navigation";
 import { Crown, Users } from "lucide-react";
 
-import { MovieSearch } from "@/components/movie/movie-search";
-import { PosterImage } from "@/components/movie/poster-image";
-import { RemoveMovieButton } from "@/components/movie/remove-movie-button";
+import { BracketPhase } from "@/components/phases/bracket-phase";
+import { DrawPhase } from "@/components/phases/draw-phase";
+import { FinishedPhase } from "@/components/phases/finished-phase";
+import { NominatingPhase } from "@/components/phases/nominating-phase";
+import { SeedingPhase } from "@/components/phases/seeding-phase";
 import { JoinRoomForm } from "@/components/room/join-room-form";
 import { LiveUpdates } from "@/components/room/live-updates";
 import { RoomCode } from "@/components/room/room-code";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { MAX_MOVIES } from "@/lib/bracket";
 import { normalizeRoomCode } from "@/lib/codes";
-import { remainingNominations } from "@/lib/nominations";
-import { getRoomState } from "@/lib/rooms";
+import { getRoomState, type RoomState } from "@/lib/rooms";
 import { readDeviceToken } from "@/lib/session";
+
+function PhaseView({ state }: { state: RoomState }) {
+  switch (state.room.phase) {
+    case "seeding":
+      return <SeedingPhase state={state} />;
+    case "draw":
+      return <DrawPhase state={state} />;
+    case "bracket":
+      return <BracketPhase state={state} />;
+    case "finished":
+      return <FinishedPhase state={state} />;
+    default:
+      return <NominatingPhase state={state} />;
+  }
+}
 
 export default async function SalaPage({ params }: { params: Promise<{ code: string }> }) {
   const { code } = await params;
@@ -21,34 +36,30 @@ export default async function SalaPage({ params }: { params: Promise<{ code: str
 
   if (!state) notFound();
 
-  const { room, me, members, movies, myNominations, nominationLimit, version } = state;
+  const { room, me, members, version } = state;
 
   if (!me) {
+    const open = room.phase === "nominating";
     return (
       <main className="mx-auto flex min-h-svh w-full max-w-md flex-col justify-center px-4 py-10">
         <Card>
           <CardHeader>
             <CardTitle>{room.name}</CardTitle>
             <CardDescription>
-              Te invitaron a esta sala. Elige un apodo para entrar.
+              {open
+                ? "Te invitaron a esta sala. Elige un apodo para entrar."
+                : "Esta sala ya cerró las nominaciones y no admite gente nueva."}
             </CardDescription>
           </CardHeader>
-          <CardContent>
-            <JoinRoomForm code={normalizeRoomCode(code)} autoFocus />
-          </CardContent>
+          {open && (
+            <CardContent>
+              <JoinRoomForm code={normalizeRoomCode(code)} autoFocus />
+            </CardContent>
+          )}
         </Card>
       </main>
     );
   }
-
-  const full = movies.length >= MAX_MOVIES;
-  const remaining = remainingNominations(nominationLimit, myNominations);
-  const blocked = full || remaining === 0;
-  const blockedReason = full
-    ? `La sala ya llegó a las ${MAX_MOVIES} películas.`
-    : remaining === 0
-      ? `Llegaste a tus ${nominationLimit} nominaciones. Retira una si quieres cambiarla.`
-      : undefined;
 
   return (
     <main className="mx-auto w-full max-w-4xl space-y-6 px-4 py-8">
@@ -57,7 +68,7 @@ export default async function SalaPage({ params }: { params: Promise<{ code: str
       <header className="space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h1 className="text-2xl font-bold tracking-tight">{room.name}</h1>
-          <RoomCode code={room.code} />
+          {room.phase === "nominating" && <RoomCode code={room.code} />}
         </div>
 
         <div className="text-muted-foreground flex flex-wrap items-center gap-2 text-sm">
@@ -71,54 +82,11 @@ export default async function SalaPage({ params }: { params: Promise<{ code: str
         </div>
       </header>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Nominaciones</CardTitle>
-          <CardDescription>
-            Van {movies.length} de {MAX_MOVIES} en la sala
-            {nominationLimit !== null && ` · llevas ${myNominations} de ${nominationLimit}`}
-            {me.isHost && " · como host no tienes tope"}
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <MovieSearch
-            code={room.code}
-            disabled={blocked}
-            disabledReason={blockedReason}
-            nominatedTmdbIds={movies.map((m) => m.tmdbId)}
-          />
-        </CardContent>
-      </Card>
+      <PhaseView state={state} />
 
-      {movies.length === 0 ? (
-        <p className="text-muted-foreground py-10 text-center text-sm">
-          Todavía no hay nominaciones. Busca la primera arriba.
-        </p>
-      ) : (
-        <ul className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          {movies.map((movie) => (
-            <li key={movie.id} className="group relative">
-              <div className="bg-muted relative overflow-hidden rounded-lg">
-                <PosterImage
-                  path={movie.posterPath}
-                  alt={movie.title}
-                  className="aspect-[2/3] w-full"
-                />
-                {(movie.mine || me.isHost) && (
-                  <RemoveMovieButton code={room.code} movieId={movie.id} title={movie.title} />
-                )}
-              </div>
-              <p className="mt-1.5 line-clamp-2 text-sm leading-tight font-medium">
-                {movie.title}
-              </p>
-              <p className="text-muted-foreground text-xs">
-                {movie.year ?? "—"}
-                {movie.addedByNickname ? ` · ${movie.addedByNickname}` : ""}
-              </p>
-            </li>
-          ))}
-        </ul>
-      )}
+      <p className="text-muted-foreground pt-6 text-center text-xs">
+        Este producto usa la API de TMDB pero no está avalado ni certificado por TMDB.
+      </p>
     </main>
   );
 }
