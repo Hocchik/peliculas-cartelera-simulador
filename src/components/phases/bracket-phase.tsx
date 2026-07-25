@@ -23,7 +23,10 @@ export function BracketPhase({ state }: { state: RoomState }) {
   const missing = roundProgress ? roundProgress.expected - roundProgress.cast : 0;
 
   return (
-    <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_22rem] lg:items-start lg:gap-6">
+    // Hasta xl van uno debajo del otro, con el cuadro a lo ancho. Desde ahí el
+    // cuadro cabe al costado sin achicarlo: cuatro rondas piden ~870 px y los
+    // versus no necesitan más de 24 rem para que los pósters se vean grandes.
+    <div className="xl:grid xl:grid-cols-[24rem_minmax(0,1fr)] xl:items-start xl:gap-8">
       <div className="space-y-5">
         <Card>
           <CardHeader>
@@ -73,13 +76,15 @@ export function BracketPhase({ state }: { state: RoomState }) {
         )}
       </div>
 
-      <aside className="mt-8 lg:sticky lg:top-6 lg:mt-0">
+      {/*
+        `max-h` + `overflow-y-auto` solo entran en acción si el cuadro no cabe a
+        lo alto; mientras quepa no aparece ninguna barra.
+      */}
+      <aside className="mt-8 xl:sticky xl:top-6 xl:mt-0 xl:max-h-[calc(100svh-3rem)] xl:overflow-y-auto">
         <h2 className="text-muted-foreground mb-3 text-xs font-semibold tracking-wide uppercase">
           Cómo va el cuadro
         </h2>
-        <div className="lg:max-h-[calc(100svh-8rem)] lg:overflow-y-auto lg:pr-1">
-          <BracketGrid matches={matches} rounds={rounds} layout="stack" />
-        </div>
+        <BracketGrid matches={matches} rounds={rounds} />
       </aside>
     </div>
   );

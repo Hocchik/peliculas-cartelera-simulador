@@ -62,14 +62,15 @@ export default async function SalaPage({ params }: { params: Promise<{ code: str
     );
   }
 
-  // Las llaves necesitan sitio: en escritorio van los versus y el cuadro a la par.
+  // Las llaves necesitan sitio: en escritorio van los versus y el cuadro a la
+  // par, y el cuadro pide unos 870 px para no tener que recorrerse de lado.
   const wide = room.phase === "bracket";
 
   return (
     <main
       className={cn(
-        "mx-auto w-full space-y-6 px-4 py-8",
-        wide ? "max-w-6xl" : "max-w-4xl",
+        "mx-auto w-full space-y-6 px-4 py-8 sm:px-6",
+        wide ? "max-w-[96rem]" : "max-w-4xl",
       )}
     >
       <LiveUpdates code={room.code} version={version} />

@@ -93,73 +93,62 @@ function MatchCard({
 }
 
 /**
- * El cuadro completo.
- *
- * `columns` lo muestra ronda por ronda en horizontal, que es la forma en que se
- * lee un cuadro de Mundial. `stack` lo apila en vertical: es lo que entra en la
- * columna lateral del escritorio y en el móvil, donde el scroll horizontal
- * dentro de una página que ya scrollea es incómodo.
+ * El cuadro completo, ronda por ronda en horizontal: es la forma en que se lee
+ * un cuadro de Mundial y la única en la que se ve de un vistazo quién se cruza
+ * con quién. Cuando no entra, se recorre de lado; los márgenes negativos dejan
+ * que ese scroll llegue al borde de la pantalla en móvil, sin cortar el
+ * contenido a media tarjeta.
  */
 export function BracketGrid({
   matches,
   rounds,
   reveal = false,
-  layout = "columns",
 }: {
   matches: MatchView[];
   rounds: number;
   reveal?: boolean;
-  layout?: "columns" | "stack";
 }) {
   const size = 2 ** rounds;
-  const roundNumbers = Array.from({ length: rounds }, (_, index) => index + 1);
-
-  const sections = roundNumbers.map((round) => ({
-    round,
-    title: roundName(round, size),
-    ofRound: matches
-      .filter((match) => match.round === round)
-      .sort((a, b) => a.slot - b.slot),
-  }));
-
-  const body = sections.map(({ round, title, ofRound }) => (
-    <section
-      key={round}
-      className={cn("space-y-2", layout === "columns" && "w-52 shrink-0")}
-    >
-      <h3 className="text-muted-foreground text-xs font-semibold tracking-wide uppercase">
-        {title}
-      </h3>
-
-      {ofRound.length === 0 ? (
-        <p className="text-muted-foreground rounded-lg border border-dashed p-3 text-xs">
-          Por definir
-        </p>
-      ) : (
-        ofRound.map((match, position) => (
-          <MatchCard
-            key={match.id}
-            match={match}
-            isFinal={round === rounds}
-            style={
-              reveal ? { animationDelay: `${(round - 1) * 240 + position * 80}ms` } : undefined
-            }
-            className={cn(
-              reveal && "animate-in fade-in slide-in-from-bottom-2 fill-mode-backwards",
-            )}
-          />
-        ))
-      )}
-    </section>
-  ));
-
-  if (layout === "stack") {
-    return <div className="space-y-5">{body}</div>;
-  }
 
   return (
-    <div className="-mx-4 overflow-x-auto px-4 pb-2">
-      <div className="flex min-w-max gap-3">{body}</div>
+    <div className="-mx-4 overflow-x-auto px-4 pb-2 xl:mx-0 xl:px-0">
+      <div className="flex min-w-max gap-3">
+        {Array.from({ length: rounds }, (_, index) => index + 1).map((round) => {
+          const ofRound = matches
+            .filter((match) => match.round === round)
+            .sort((a, b) => a.slot - b.slot);
+
+          return (
+            <section key={round} className="w-48 shrink-0 space-y-2">
+              <h3 className="text-muted-foreground text-xs font-semibold tracking-wide uppercase">
+                {roundName(round, size)}
+              </h3>
+
+              {ofRound.length === 0 ? (
+                <p className="text-muted-foreground rounded-lg border border-dashed p-3 text-xs">
+                  Por definir
+                </p>
+              ) : (
+                ofRound.map((match, position) => (
+                  <MatchCard
+                    key={match.id}
+                    match={match}
+                    isFinal={round === rounds}
+                    style={
+                      reveal
+                        ? { animationDelay: `${(round - 1) * 240 + position * 80}ms` }
+                        : undefined
+                    }
+                    className={cn(
+                      reveal && "animate-in fade-in slide-in-from-bottom-2 fill-mode-backwards",
+                    )}
+                  />
+                ))
+              )}
+            </section>
+          );
+        })}
+      </div>
     </div>
   );
 }

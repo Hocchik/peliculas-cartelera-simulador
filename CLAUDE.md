@@ -250,12 +250,14 @@ propagaron y cambiarlos dejaría el cuadro inconsistente.
 
 ## 7. Convenciones
 
-- **Mobile-first sin excepción.** Se vota desde el celular en el sofá. `BracketGrid` tiene dos
-  disposiciones: `columns` (rondas en horizontal, como se lee un cuadro de Mundial) para el
-  sorteo y el resultado, y `stack` (apilado en vertical) para el costado de las llaves y el
-  móvil, donde un scroll horizontal dentro de una página que ya scrollea es incómodo.
-- **En escritorio las llaves van a dos columnas**: los versus a la izquierda y el cuadro a la
-  derecha, pegado con `sticky`. Por eso esa fase usa `max-w-6xl` y el resto `max-w-4xl`.
+- **Mobile-first sin excepción.** Se vota desde el celular en el sofá.
+- **El cuadro va siempre en columnas**, ronda por ronda en horizontal: es como se lee un cuadro
+  de Mundial y lo único que deja ver de un vistazo quién se cruza con quién. Apilarlo en
+  vertical se probó y se lee peor. Cuando no entra, se recorre de lado.
+- **En escritorio las llaves van a dos columnas** desde `xl`: los versus en 24 rem a la
+  izquierda y el cuadro a la derecha, pegado con `sticky`. Cuatro rondas piden unos 870 px, por
+  eso esa fase usa `max-w-[96rem]` y el resto `max-w-4xl`. Por debajo de `xl` se apilan y el
+  cuadro queda abajo, a lo ancho.
 - Mutaciones vía **Server Actions**; los Route Handlers quedan para el proxy de TMDB.
 - Toda la copy de la interfaz en **español**, tono informal ("Tu voto", "Faltan 3 por votar").
 - **Títulos bilingües.** Buscar en TMDB con `language=es-MX` y guardar `title` (español) y
