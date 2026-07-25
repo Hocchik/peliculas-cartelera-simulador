@@ -88,7 +88,7 @@ npm run db:studio    # inspeccionar la BD
 
 ```
 DATABASE_URL=postgres://...        # Neon
-TMDB_API_KEY=...                   # solo servidor, NUNCA NEXT_PUBLIC_
+TMDB_ACCESS_TOKEN=...              # token de lectura v4, se manda como Bearer
 SESSION_SECRET=...                 # firma de la cookie de participante
 NEXT_PUBLIC_TMDB_IMAGE_BASE=https://image.tmdb.org/t/p
 ```
@@ -101,24 +101,26 @@ NEXT_PUBLIC_TMDB_IMAGE_BASE=https://image.tmdb.org/t/p
 src/
   app/
     page.tsx                     # landing: crear sala / unirse con código
+    actions.ts                   # createRoom, joinRoom
     sala/[code]/
       page.tsx                   # despacha la vista según room.phase
-      nominar/  siembra/  sorteo/  votar/  cartelera/
-      actions.ts                 # Server Actions de la sala
-    api/tmdb/
-      search/route.ts            # proxy de búsqueda (debounce + caché)
-      movie/[id]/route.ts        # detalle
+      actions.ts                 # addMovie, removeMovie (y las que vengan)
+    api/tmdb/search/route.ts     # proxy de búsqueda; exige cookie válida
   components/
-    bracket/                     # Bracket, Match, CoinFlip
-    movie/                       # MovieSearch, MovieCard, PosterImage
+    movie/                       # MovieSearch, PosterImage, RemoveMovieButton
+    room/                        # CreateRoomForm, JoinRoomForm, RoomCode
     ui/                          # shadcn
   db/
     schema.ts  index.ts  migrations/
   lib/
-    tmdb.ts      # cliente + tipos Zod
-    bracket.ts   # generación de cuadro, siembra, avance de rondas (PURO, testeado)
-    rules.ts     # empates, byes, moderación
-    session.ts   # cookie de participante
+    bracket.ts     # cuadro, siembra, avance de rondas (PURO, testeado)
+    tmdb.ts        # cliente de TMDB, `server-only`
+    tmdb-types.ts  # tipos compartidos con el cliente
+    poster.ts      # URLs de póster, seguro en el cliente
+    session.ts     # cookie firmada de participante
+    rooms.ts       # lectura del estado de sala (recorta la autoría)
+    codes.ts       # códigos de sala y semillas
+    db-errors.ts   # detección de violación de índice único
 ```
 
 ---
@@ -139,6 +141,8 @@ Si algún día se quieren salas recurrentes, esa tabla se reintroduce y todo lo 
 | `screenings` | id, room_id, movie_id, position, scheduled_at (nullable) |
 
 `phase` ∈ `lobby | nominating | seeding | draw | bracket | finished`
+Las salas se crean directamente en `nominating`: el lobby y la nominación son la misma
+pantalla, así que `lobby` está en el enum pero sin usar.
 `status` (matches) ∈ `pending | open | decided`
 `decided_by` ∈ `votes | coinflip | host | bye`
 `settings` ∈ `{ maxPerPerson?: number }` — sin límite por defecto.
@@ -154,7 +158,8 @@ UNIQUE (movies.room_id, tmdb_id)                    -- sin películas duplicadas
 UNIQUE (votes.match_id, participant_id)             -- un voto por persona por versus
 UNIQUE (seed_votes.room_id, participant_id, movie_id) -- una aprobación por peli
 UNIQUE (participants.room_id) WHERE is_host         -- un solo host por sala
-UNIQUE (participants.device_token)
+UNIQUE (participants.room_id, device_token)         -- por sala, NO global: el mismo
+                                                    -- dispositivo entra a muchas salas
 UNIQUE (participants.room_id, nickname)             -- no hay dos "Josué" en la misma sala
 UNIQUE (matches.room_id, round, slot)
 UNIQUE (screenings.room_id, position)
@@ -213,7 +218,8 @@ todos sus matches, o cuando el host fuerza el cierre.
 diálogo de confirmación** que diga cuántas personas faltan y qué matches se resolverán sin sus
 votos. Es una acción irreversible disparable por error desde el móvil.
 
-**Empate en un match.** Moneda al aire derivada de `(tiebreak_seed, match.id)`,
+**Empate en un match.** Moneda al aire derivada de `(tiebreak_seed, round, slot)` — no del
+UUID del match, que no es un número y no serviría de semilla —,
 `decided_by = 'coinflip'`. La UI reproduce una animación de moneda que aterriza en el
 resultado guardado.
 
@@ -254,38 +260,38 @@ sorteo animado, bracket con votación en vivo, podio. *Con esto ya resuelve el p
 
 ## 9. Estado actual
 
-**Hecho**
+**Funcionando de punta a punta**
 
-- Repo git inicializado. Scaffold de Next 16 con TypeScript, Tailwind v4, ESLint y `src/`.
-- Drizzle + Neon + Zod + Vitest instalados. `drizzle.config.ts` lee `.env.local`.
-- `src/db/schema.ts`: las 7 tablas con todos sus índices únicos.
-- `src/db/migrations/0000_*.sql` **generada pero NO aplicada** (todavía no hay base).
-- `src/db/index.ts`: `db()` es una **función**, no una constante — conectar en el import
-  haría fallar `next build` en máquinas sin `DATABASE_URL`.
-- `src/lib/bracket.ts` + 30 tests en verde: PRNG determinista, siembra estándar, byes a las
-  cabezas de serie, moneda al aire reproducible, avance de rondas.
+- Neon conectado, migraciones `0000` y `0001` aplicadas contra la base real.
+- TMDB conectado con el token v4. Búsqueda verificada: devuelve `Interestelar` /
+  `Interstellar`, exactamente el par bilingüe que necesita la UI.
+- Fase 1 completa: crear sala, entrar con código + apodo, buscar en TMDB, nominar hasta 16,
+  retirar nominaciones (las propias cualquiera; las ajenas solo el host).
+- `src/lib/bracket.ts` + 30 tests: PRNG determinista, siembra estándar, byes a las cabezas de
+  serie, moneda al aire reproducible, avance de rondas.
 - `npm run typecheck`, `npm run lint`, `npm test` y `npm run build` pasan.
 
-**Pendiente de configurar (requiere al usuario)**
+**Probado contra el servidor real**, no solo compilado: landing 200, sala existente 200 con
+formulario de apodo, código en minúsculas resuelto por `normalizeRoomCode`, sala inexistente
+404, proxy de TMDB 401 sin cookie y 401 con firma falsificada, 200 con cookie válida.
 
-1. Crear proyecto en **Neon** → pegar la connection string en `.env.local`.
-2. Crear cuenta en **TMDB** y pedir la API key v3 (Ajustes → API) → `.env.local`.
-3. Generar `SESSION_SECRET`.
-4. `npm run db:migrate` para aplicar la migración.
+**Siguientes pasos**
 
-**Siguientes pasos de código**
-
-5. `npx shadcn@latest init` — aún no está inicializado; hacerlo antes de la primera pantalla
-   porque reescribe `globals.css` con los tokens de diseño.
-6. `src/lib/session.ts` (cookie firmada de participante) y `src/lib/tmdb.ts` (cliente + Zod).
-7. Server Actions de sala: crear, unirse, nominar, aprobar, sortear, votar.
-8. UI, en el orden del flujo: landing → nominar → siembra → sorteo → llaves → cartelera.
+1. Fase de siembra: pantalla de aprobación + `seed_votes` + acción para cerrarla (solo host).
+2. Sorteo: generar `matches` de la ronda 1 con `drawSlots` + `initialMatches`, con animación.
+3. Llaves: pantalla de versus, `votes`, cierre de ronda, cierre forzado con confirmación,
+   animación de moneda al aire.
+4. Cartelera: podio → `screenings`.
+5. Polling con SWR para que el cuadro se mueva en vivo para todos.
 
 **Deuda conocida**
 
+- El puerto 3000 lo ocupa otro proyecto del usuario (JKore); `next dev` cae al 3001.
 - `npm audit` reporta vulnerabilidades transitivas de tooling (eslint→minimatch,
   esbuild dev-server, sharp/libvips). `npm audit fix --force` degradaría Next: no correrlo.
   Revisar cuando suban las versiones de `eslint-config-next` y `drizzle-kit`.
+- Las Server Actions de sala devuelven `{ ok, error }` en vez de lanzar: el cliente muestra el
+  mensaje tal cual, así que los textos de error son copy visible para el usuario.
 
 ---
 

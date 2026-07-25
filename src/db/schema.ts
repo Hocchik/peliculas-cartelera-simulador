@@ -72,13 +72,17 @@ export const participants = pgTable(
     /** Semilla del avatar generado. Evita pedir foto de perfil. */
     avatarSeed: integer("avatar_seed").notNull(),
     isHost: boolean("is_host").notNull().default(false),
-    /** Token aleatorio guardado en cookie firmada: es la identidad del participante. */
+    /**
+     * Token aleatorio guardado en cookie firmada: es la identidad del
+     * participante. Es el mismo para todas las salas de un dispositivo, por eso
+     * su unicidad es por sala y no global.
+     */
     deviceToken: text("device_token").notNull(),
     lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull().defaultNow(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
-    uniqueIndex("participants_device_token_unq").on(t.deviceToken),
+    uniqueIndex("participants_room_device_unq").on(t.roomId, t.deviceToken),
     uniqueIndex("participants_room_nickname_unq").on(t.roomId, t.nickname),
     // Un solo host por sala, garantizado por la base y no por el código.
     uniqueIndex("participants_single_host_unq")
