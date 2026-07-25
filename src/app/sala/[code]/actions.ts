@@ -7,6 +7,7 @@ import { z } from "zod";
 import { db, movies, participants, type Participant, type Room } from "@/db";
 import { MAX_MOVIES } from "@/lib/bracket";
 import { isUniqueViolation } from "@/lib/db-errors";
+import { nominationLimit } from "@/lib/nominations";
 import { findRoomByCode } from "@/lib/rooms";
 import { readDeviceToken } from "@/lib/session";
 import { getMovie } from "@/lib/tmdb";
@@ -65,14 +66,17 @@ export async function addMovie(input: {
     return { ok: false, error: `La sala ya llegó al tope de ${MAX_MOVIES} películas` };
   }
 
-  const limit = room.settings.maxPerPerson;
-  if (limit !== undefined) {
+  const limit = nominationLimit(room.settings, me.isHost);
+  if (limit !== null) {
     const [{ total: mine }] = await db()
       .select({ total: count() })
       .from(movies)
       .where(and(eq(movies.roomId, room.id), eq(movies.addedBy, me.id)));
     if (mine >= limit) {
-      return { ok: false, error: `Ya nominaste tus ${limit} películas` };
+      return {
+        ok: false,
+        error: `Solo puedes nominar ${limit} películas. Retira una si quieres cambiarla.`,
+      };
     }
   }
 

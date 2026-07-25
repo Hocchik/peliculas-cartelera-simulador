@@ -14,10 +14,12 @@ const MIN_QUERY = 2;
 export function MovieSearch({
   code,
   disabled,
+  disabledReason,
   nominatedTmdbIds,
 }: {
   code: string;
   disabled: boolean;
+  disabledReason?: string;
   nominatedTmdbIds: number[];
 }) {
   const [query, setQuery] = useState("");
@@ -85,7 +87,9 @@ export function MovieSearch({
             setAddError(null);
           }}
           disabled={disabled || adding}
-          placeholder="Busca una película: Interestelar, Parasite, El Padrino…"
+          placeholder={
+            disabled ? "Nominaciones cerradas" : "Busca una película: Interestelar, Parasite…"
+          }
           className="pl-9"
           aria-label="Buscar película"
         />
@@ -94,6 +98,9 @@ export function MovieSearch({
         )}
       </div>
 
+      {disabled && disabledReason && (
+        <p className="text-muted-foreground text-sm">{disabledReason}</p>
+      )}
       {error && <p className="text-destructive text-sm">{error}</p>}
 
       {results.length > 0 && (

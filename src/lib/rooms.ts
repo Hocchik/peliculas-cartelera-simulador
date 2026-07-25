@@ -4,6 +4,7 @@ import { asc, eq } from "drizzle-orm";
 
 import { db, movies, participants, rooms, type Participant, type Room } from "@/db";
 import { normalizeRoomCode } from "@/lib/codes";
+import { nominationLimit, roomVersion } from "@/lib/nominations";
 
 export type MovieView = {
   id: string;
@@ -25,6 +26,12 @@ export type RoomState = {
   me: Participant | null;
   members: Participant[];
   movies: MovieView[];
+  /** Cuántas nominó quien está mirando. */
+  myNominations: number;
+  /** Su tope personal. `null` = sin tope (el host). */
+  nominationLimit: number | null;
+  /** Huella del estado; el polling la compara para saber si hay novedades. */
+  version: string;
 };
 
 export async function findRoomByCode(rawCode: string): Promise<Room | null> {
@@ -64,6 +71,7 @@ export async function getRoomState(
       voteAverage: movies.voteAverage,
       addedBy: movies.addedBy,
       addedByNickname: participants.nickname,
+      createdAt: movies.createdAt,
     })
     .from(movies)
     .leftJoin(participants, eq(movies.addedBy, participants.id))
@@ -76,12 +84,29 @@ export async function getRoomState(
     room,
     me,
     members,
-    movies: rows.map(({ addedBy, addedByNickname, ...movie }) => ({
-      ...movie,
-      mine: addedBy !== null && addedBy === me?.id,
-      // La autoría se recorta acá, en el servidor. Ocultarla en el render no
-      // bastaría: viajaría igual en el payload de la respuesta.
-      addedByNickname: isHost ? addedByNickname : null,
+    // Lista explícita a propósito: esto es exactamente lo que sale del servidor.
+    // `createdAt` y `addedBy` se quedan acá. Ocultar la autoría en el render no
+    // bastaría, viajaría igual en el payload de la respuesta (invariante 4).
+    movies: rows.map((row) => ({
+      id: row.id,
+      tmdbId: row.tmdbId,
+      title: row.title,
+      originalTitle: row.originalTitle,
+      year: row.year,
+      posterPath: row.posterPath,
+      runtime: row.runtime,
+      voteAverage: row.voteAverage,
+      mine: row.addedBy !== null && row.addedBy === me?.id,
+      addedByNickname: isHost ? row.addedByNickname : null,
     })),
+    myNominations: me ? rows.filter((row) => row.addedBy === me.id).length : 0,
+    nominationLimit: nominationLimit(room.settings, isHost),
+    // Las filas vienen ordenadas por created_at, así que la última es la más nueva.
+    version: roomVersion({
+      phase: room.phase,
+      movieCount: rows.length,
+      lastMovieAt: rows.at(-1)?.createdAt ?? null,
+      memberCount: members.length,
+    }),
   };
 }

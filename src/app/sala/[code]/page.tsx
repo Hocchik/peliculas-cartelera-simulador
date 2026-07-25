@@ -5,11 +5,13 @@ import { MovieSearch } from "@/components/movie/movie-search";
 import { PosterImage } from "@/components/movie/poster-image";
 import { RemoveMovieButton } from "@/components/movie/remove-movie-button";
 import { JoinRoomForm } from "@/components/room/join-room-form";
+import { LiveUpdates } from "@/components/room/live-updates";
 import { RoomCode } from "@/components/room/room-code";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { MAX_MOVIES } from "@/lib/bracket";
 import { normalizeRoomCode } from "@/lib/codes";
+import { remainingNominations } from "@/lib/nominations";
 import { getRoomState } from "@/lib/rooms";
 import { readDeviceToken } from "@/lib/session";
 
@@ -19,7 +21,7 @@ export default async function SalaPage({ params }: { params: Promise<{ code: str
 
   if (!state) notFound();
 
-  const { room, me, members, movies } = state;
+  const { room, me, members, movies, myNominations, nominationLimit, version } = state;
 
   if (!me) {
     return (
@@ -40,9 +42,18 @@ export default async function SalaPage({ params }: { params: Promise<{ code: str
   }
 
   const full = movies.length >= MAX_MOVIES;
+  const remaining = remainingNominations(nominationLimit, myNominations);
+  const blocked = full || remaining === 0;
+  const blockedReason = full
+    ? `La sala ya llegó a las ${MAX_MOVIES} películas.`
+    : remaining === 0
+      ? `Llegaste a tus ${nominationLimit} nominaciones. Retira una si quieres cambiarla.`
+      : undefined;
 
   return (
     <main className="mx-auto w-full max-w-4xl space-y-6 px-4 py-8">
+      <LiveUpdates code={room.code} version={version} />
+
       <header className="space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h1 className="text-2xl font-bold tracking-tight">{room.name}</h1>
@@ -64,15 +75,16 @@ export default async function SalaPage({ params }: { params: Promise<{ code: str
         <CardHeader>
           <CardTitle>Nominaciones</CardTitle>
           <CardDescription>
-            {full
-              ? `Ya están las ${MAX_MOVIES} películas. El host puede retirar alguna si hace falta.`
-              : `Van ${movies.length} de ${MAX_MOVIES}. Agrega las que quieras ver.`}
+            Van {movies.length} de {MAX_MOVIES} en la sala
+            {nominationLimit !== null && ` · llevas ${myNominations} de ${nominationLimit}`}
+            {me.isHost && " · como host no tienes tope"}
           </CardDescription>
         </CardHeader>
         <CardContent>
           <MovieSearch
             code={room.code}
-            disabled={full}
+            disabled={blocked}
+            disabledReason={blockedReason}
             nominatedTmdbIds={movies.map((m) => m.tmdbId)}
           />
         </CardContent>

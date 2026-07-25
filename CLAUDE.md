@@ -43,7 +43,7 @@ El **host** (quien creó la sala) es el único que avanza de fase y el único qu
 | Ritmo | En vivo, todos juntos. La UI se actualiza para todos mientras votan. |
 | Empates | Moneda al aire animada, **decidida en el servidor**. |
 | Resultado | El podio completo arma la cartelera, no solo la campeona. |
-| Cupo de nominaciones | **Libre**: cualquiera sube varias hasta llenar las 16. El host regula. |
+| Cupo de nominaciones | **4 por invitado**; el host no tiene tope, porque rellena y modera. |
 | Autoría de nominaciones | Se guarda, pero **solo la ve el host**, para su filtro previo. |
 | Alcance de la sala | Una sala **por evento**. Sin historial ni salas recurrentes. |
 | Idioma | Interfaz solo en español. Los títulos se muestran en español **y** en su idioma original. |
@@ -65,8 +65,9 @@ y a la carga de polling; nada del diseño depende de este número.
 - **Tailwind CSS v4** + **shadcn/ui**
 - **Neon** (Postgres serverless) + **Drizzle ORM** — elegido sobre Supabase porque su free
   tier no pausa el proyecto tras días de inactividad; esta app se usa de forma esporádica.
-- **SWR con polling de 2 s** para el estado en vivo. Es suficiente para ≤10 usuarios; no
-  añadir WebSockets/Pusher salvo que se note lag real.
+- **Polling de un latido cada 3 s** para el estado en vivo: `/api/sala/[code]/pulse` devuelve
+  solo una huella del estado y el cliente llama a `router.refresh()` únicamente si cambió.
+  Es suficiente para ≤10 usuarios; no añadir WebSockets/Pusher salvo que se note lag real.
 - **Zod** para validar todo input de usuario y toda respuesta de TMDB.
 - **TMDB** para búsqueda, pósters y metadatos.
 - Deploy en **Vercel**. Todo el stack cabe en tiers gratuitos.
@@ -106,9 +107,10 @@ src/
       page.tsx                   # despacha la vista según room.phase
       actions.ts                 # addMovie, removeMovie (y las que vengan)
     api/tmdb/search/route.ts     # proxy de búsqueda; exige cookie válida
+    api/sala/[code]/pulse/route.ts  # huella del estado para el polling
   components/
     movie/                       # MovieSearch, PosterImage, RemoveMovieButton
-    room/                        # CreateRoomForm, JoinRoomForm, RoomCode
+    room/                        # CreateRoomForm, JoinRoomForm, RoomCode, LiveUpdates
     ui/                          # shadcn
   db/
     schema.ts  index.ts  migrations/
@@ -119,6 +121,7 @@ src/
     poster.ts      # URLs de póster, seguro en el cliente
     session.ts     # cookie firmada de participante
     rooms.ts       # lectura del estado de sala (recorta la autoría)
+    nominations.ts # topes por persona y huella de estado (PURO, testeado)
     codes.ts       # códigos de sala y semillas
     db-errors.ts   # detección de violación de índice único
 ```
@@ -194,10 +197,15 @@ UNIQUE (screenings.room_id, position)
 
 ## 6. Reglas del torneo
 
-**Nominación.** Cualquiera agrega las películas que quiera hasta llegar a 16 en total. Cada
-uno puede retirar las suyas; **el host puede retirar cualquiera**, incluidas las ajenas, y ve
-quién nominó qué para hacer ese primer filtro. Si el reparto se desbalancea, el host puede
-fijar `settings.maxPerPerson`; por defecto no hay tope individual.
+**Nominación.** Cada invitado puede nominar **4 películas** (`DEFAULT_MAX_PER_GUEST`), hasta
+llegar a 16 en la sala. El **host no tiene tope**: es quien rellena el cuadro si falta gente y
+quien modera. `settings.maxPerPerson` pisa el tope de los invitados, nunca el del host.
+
+Cada uno puede retirar las suyas; **el host puede retirar cualquiera**, incluidas las ajenas, y
+ve quién nominó qué para hacer ese primer filtro.
+
+El tope se comprueba en el servidor dentro de `addMovie`, no solo desactivando el buscador: la
+Server Action es alcanzable con un POST directo.
 
 **Siembra.** Cada participante marca todas las películas que estaría dispuesto a ver
 (voto de aprobación, sin límite). El puntaje de una película = nº de aprobaciones.
@@ -267,6 +275,8 @@ sorteo animado, bracket con votación en vivo, podio. *Con esto ya resuelve el p
   `Interstellar`, exactamente el par bilingüe que necesita la UI.
 - Fase 1 completa: crear sala, entrar con código + apodo, buscar en TMDB, nominar hasta 16,
   retirar nominaciones (las propias cualquiera; las ajenas solo el host).
+- Actualización en vivo: lo que nomina otro aparece solo, sin recargar.
+- Tope de 4 nominaciones por invitado; el host sin tope.
 - `src/lib/bracket.ts` + 30 tests: PRNG determinista, siembra estándar, byes a las cabezas de
   serie, moneda al aire reproducible, avance de rondas.
 - `npm run typecheck`, `npm run lint`, `npm test` y `npm run build` pasan.
