@@ -13,7 +13,7 @@ npm run db:migrate
 npm run dev
 ```
 
-Abrir http://localhost:3000.
+Abrir http://localhost:3001.
 
 Servicios necesarios, todos con tier gratuito:
 

@@ -286,7 +286,6 @@ formulario de apodo, código en minúsculas resuelto por `normalizeRoomCode`, sa
 
 **Deuda conocida**
 
-- El puerto 3000 lo ocupa otro proyecto del usuario (JKore); `next dev` cae al 3001.
 - `npm audit` reporta vulnerabilidades transitivas de tooling (eslint→minimatch,
   esbuild dev-server, sharp/libvips). `npm audit fix --force` degradaría Next: no correrlo.
   Revisar cuando suban las versiones de `eslint-config-next` y `drizzle-kit`.
