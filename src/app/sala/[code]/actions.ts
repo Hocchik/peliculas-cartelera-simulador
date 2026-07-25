@@ -1,7 +1,8 @@
 "use server";
 
-import { and, count, eq } from "drizzle-orm";
+import { and, count, eq, gt, lte } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { z } from "zod";
 
 import {
@@ -10,6 +11,7 @@ import {
   movies,
   participants,
   rooms,
+  screenings,
   seedVotes,
   votes,
   type Participant,
@@ -338,6 +340,107 @@ export async function castVote(input: {
   const closed = await closeRoundIfComplete(room, await memberCount(room.id));
   if (closed?.finished) {
     await db().update(rooms).set({ phase: "finished" }).where(eq(rooms.id, room.id));
+  }
+
+  revalidatePath(`/sala/${room.code}`);
+  return { ok: true };
+}
+
+/**
+ * Deshace el torneo y devuelve la sala a nominaciones. Se conservan las
+ * películas y la gente; se borran siembra, cuadro, votos y cartelera.
+ */
+export async function resetRoom(code: string): Promise<ActionResult> {
+  const auth = await requireHost(code);
+  if ("error" in auth) return { ok: false, error: auth.error };
+  const { room } = auth;
+
+  if (room.phase === "nominating") {
+    return { ok: false, error: "La sala ya está en nominaciones" };
+  }
+
+  // Los votos cuelgan de matches y se van en cascada con ellos.
+  await db().delete(screenings).where(eq(screenings.roomId, room.id));
+  await db().delete(matches).where(eq(matches.roomId, room.id));
+  await db().delete(seedVotes).where(eq(seedVotes.roomId, room.id));
+  await db().update(rooms).set({ phase: "nominating" }).where(eq(rooms.id, room.id));
+
+  revalidatePath(`/sala/${room.code}`);
+  return { ok: true };
+}
+
+/** Borra la sala entera. Todo lo demás se va en cascada. */
+export async function deleteRoom(code: string): Promise<ActionResult> {
+  const auth = await requireHost(code);
+  if ("error" in auth) return { ok: false, error: auth.error };
+
+  await db().delete(rooms).where(eq(rooms.id, auth.room.id));
+  redirect("/");
+}
+
+const extraPicksSchema = z.object({
+  code: z.string().min(1),
+  movieIds: z.array(z.string().uuid()).max(2, "Como mucho 2 películas más"),
+});
+
+/** Las posiciones 1 a 4 salen del podio; de la 5 en adelante las elige el host. */
+const PODIUM_SIZE = 4;
+
+/**
+ * El host suma un par de películas a la cartelera además del podio, para que la
+ * imagen que se comparte tenga las 6 que de verdad se van a ver.
+ */
+export async function setExtraPicks(input: {
+  code: string;
+  movieIds: string[];
+}): Promise<ActionResult> {
+  const parsed = extraPicksSchema.safeParse(input);
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.issues[0].message };
+  }
+
+  const auth = await requireHost(parsed.data.code);
+  if ("error" in auth) return { ok: false, error: auth.error };
+  const { room } = auth;
+
+  if (room.phase !== "finished") {
+    return { ok: false, error: "La cartelera se arma cuando termina el torneo" };
+  }
+
+  const unique = [...new Set(parsed.data.movieIds)];
+
+  const podium = await db()
+    .select({ movieId: screenings.movieId })
+    .from(screenings)
+    .where(and(eq(screenings.roomId, room.id), lte(screenings.position, PODIUM_SIZE)));
+  const inPodium = new Set(podium.map((row) => row.movieId));
+
+  for (const movieId of unique) {
+    if (inPodium.has(movieId)) {
+      return { ok: false, error: "Esa película ya está en el podio" };
+    }
+    const [movie] = await db()
+      .select({ id: movies.id })
+      .from(movies)
+      .where(and(eq(movies.id, movieId), eq(movies.roomId, room.id)))
+      .limit(1);
+    if (!movie) return { ok: false, error: "Esa película no está en la sala" };
+  }
+
+  await db()
+    .delete(screenings)
+    .where(and(eq(screenings.roomId, room.id), gt(screenings.position, PODIUM_SIZE)));
+
+  if (unique.length > 0) {
+    await db()
+      .insert(screenings)
+      .values(
+        unique.map((movieId, index) => ({
+          roomId: room.id,
+          movieId,
+          position: PODIUM_SIZE + index + 1,
+        })),
+      );
   }
 
   revalidatePath(`/sala/${room.code}`);

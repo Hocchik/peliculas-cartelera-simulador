@@ -27,6 +27,12 @@ export function LiveUpdates({ code, version }: { code: string; version: string }
       if (stopped || document.visibilityState !== "visible") return;
       try {
         const res = await fetch(`/api/sala/${code}/pulse`, { cache: "no-store" });
+        // El host cerró la sala: refrescar lleva a la pantalla de "no existe"
+        // en vez de dejar a la gente mirando algo que ya no está.
+        if (res.status === 404) {
+          router.refresh();
+          return;
+        }
         if (!res.ok) return;
         const { version: latest } = (await res.json()) as { version: string };
         if (!stopped && latest !== known.current) {

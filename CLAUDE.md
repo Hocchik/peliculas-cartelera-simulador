@@ -109,7 +109,8 @@ src/
       page.tsx                   # despacha la vista según room.phase
       actions.ts                 # addMovie, removeMovie (y las que vengan)
     api/tmdb/search/route.ts     # proxy de búsqueda; exige cookie válida
-    api/sala/[code]/pulse/route.ts  # huella del estado para el polling
+    api/sala/[code]/pulse/route.ts      # huella del estado para el polling
+    api/sala/[code]/cartelera/route.tsx # PNG de la cartelera (público)
   components/
     phases/                      # una por room.phase; page.tsx solo despacha
     movie/                       # MovieSearch, PosterImage, RemoveMovieButton
@@ -130,6 +131,7 @@ src/
     rooms.ts       # lectura del estado de sala (recorta la autoría)
     nominations.ts # topes por persona y huella de estado (PURO, testeado)
     codes.ts       # códigos de sala y semillas
+    site.ts        # URL pública absoluta, para las previsualizaciones
     db-errors.ts   # detección de violación de índice único
 ```
 
@@ -244,7 +246,19 @@ Solo alcanza a la ronda en juego — una vez armada la siguiente, los ganadores 
 propagaron y cambiarlos dejaría el cuadro inconsistente.
 
 **Resultado.** No hay una sola ganadora: campeona, subcampeona y las dos semifinalistas pasan a
-`screenings` como las próximas cuatro noches, en ese orden.
+`screenings` como las próximas cuatro noches, en ese orden. El host puede sumar **2 más** con
+`setExtraPicks`, que se guardan en las posiciones 5 y 6 de la misma tabla.
+
+**Cartelera como imagen.** `/api/sala/[code]/cartelera` devuelve un PNG de 1200×630 con las
+hasta 6 películas, hecho con `ImageResponse` de `next/og`. Es **público a propósito**: lo tiene
+que leer el previsualizador de WhatsApp, que no manda cookies, y solo expone lo que ya sabe
+cualquiera con el código. Con el torneo terminado, `generateMetadata` lo cuelga como `og:image`
+de la sala, así que pegar el enlace en el grupo muestra la cartelera.
+
+**Reiniciar y cerrar.** El host tiene `resetRoom` (borra siembra, cuadro, votos y cartelera, y
+vuelve a nominaciones conservando películas y gente) y `deleteRoom` (borra la sala entera).
+Ambas piden confirmación. Al cerrarse una sala, el latido devuelve 404 y `LiveUpdates` refresca
+para que los demás no se queden mirando algo que ya no existe.
 
 ---
 
@@ -293,6 +307,8 @@ sorteo animado, bracket con votación en vivo, podio. *Con esto ya resuelve el p
 - Actualización en vivo por latido; tope de 4 nominaciones por invitado, host sin tope.
 - Las rondas se cierran solas cuando votan todos; el host puede forzarlas antes.
 - Empates a la espera del host, y el host puede hacer pasar a la que perdió.
+- El host puede reiniciar el torneo o cerrar la sala.
+- Cartelera descargable como PNG (podio + 2 que elige el host) y como preview al compartir.
 - Desplegado en **mundial-de-pelis.vercel.app**.
 - 42 tests unitarios + 9 de integración contra Neon. `typecheck`, `lint` y `build` pasan.
 
@@ -310,8 +326,10 @@ sorteo animado, bracket con votación en vivo, podio. *Con esto ya resuelve el p
 
 **Siguientes pasos**
 
-1. Reemplazar `window.confirm` del `HostButton` por un `AlertDialog` de shadcn.
-2. Fechas en la cartelera y compartir con imagen OG para WhatsApp.
+1. Reemplazar `window.confirm` del `HostButton` por un `AlertDialog` de shadcn. Son cuatro
+   acciones destructivas ya (cerrar nominaciones, sortear, cerrar ronda, reiniciar, cerrar
+   sala) y el `confirm` del navegador se ve pobre para lo que decide.
+2. Fechas en la cartelera.
 3. Que el host pueda reabrir un cruce ya cerrado (hoy su poder termina cuando la ronda
    avanza, para no dejar el cuadro inconsistente).
 

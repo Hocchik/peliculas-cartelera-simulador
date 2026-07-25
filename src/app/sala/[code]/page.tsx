@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { Crown, Users } from "lucide-react";
 
@@ -6,13 +7,14 @@ import { DrawPhase } from "@/components/phases/draw-phase";
 import { FinishedPhase } from "@/components/phases/finished-phase";
 import { NominatingPhase } from "@/components/phases/nominating-phase";
 import { SeedingPhase } from "@/components/phases/seeding-phase";
+import { HostControls } from "@/components/room/host-controls";
 import { JoinRoomForm } from "@/components/room/join-room-form";
 import { LiveUpdates } from "@/components/room/live-updates";
 import { RoomCode } from "@/components/room/room-code";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { normalizeRoomCode } from "@/lib/codes";
-import { getRoomState, type RoomState } from "@/lib/rooms";
+import { findRoomByCode, getRoomState, type RoomState } from "@/lib/rooms";
 import { readDeviceToken } from "@/lib/session";
 import { cn } from "@/lib/utils";
 
@@ -29,6 +31,30 @@ function PhaseView({ state }: { state: RoomState }) {
     default:
       return <NominatingPhase state={state} />;
   }
+}
+
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ code: string }>;
+}): Promise<Metadata> {
+  const { code } = await params;
+  const room = await findRoomByCode(code);
+  if (!room) return { title: "Sala no encontrada" };
+
+  const title = `${room.name} · Mundial de Pelis`;
+
+  // Con el torneo terminado, pegar el enlace en el grupo muestra la cartelera.
+  if (room.phase !== "finished") return { title };
+
+  return {
+    title,
+    openGraph: {
+      title,
+      description: "La cartelera quedó definida.",
+      images: [{ url: `/api/sala/${room.code}/cartelera`, width: 1200, height: 630 }],
+    },
+  };
 }
 
 export default async function SalaPage({ params }: { params: Promise<{ code: string }> }) {
@@ -93,6 +119,8 @@ export default async function SalaPage({ params }: { params: Promise<{ code: str
       </header>
 
       <PhaseView state={state} />
+
+      {me.isHost && <HostControls code={room.code} phase={room.phase} />}
 
       <p className="text-muted-foreground pt-6 text-center text-xs">
         Este producto usa la API de TMDB pero no está avalado ni certificado por TMDB.
