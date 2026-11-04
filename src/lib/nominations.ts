@@ -31,6 +31,8 @@ export type RoomFingerprint = {
   voteCount?: number;
   /** Cuántos cruces ya tienen ganador: mueve el cuadro aunque nadie vote más. */
   decidedCount?: number;
+  /** Cruces empatados: un cierre forzado puede crearlos sin que cambie nada más. */
+  tiedCount?: number;
 };
 
 /** Identidad del estado de una sala. Si cambia, hay algo nuevo que mostrar. */
@@ -43,5 +45,6 @@ export function roomVersion(input: RoomFingerprint): string {
     input.seedVoteCount ?? 0,
     input.voteCount ?? 0,
     input.decidedCount ?? 0,
+    input.tiedCount ?? 0,
   ].join("|");
 }

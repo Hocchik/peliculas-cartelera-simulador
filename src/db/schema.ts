@@ -36,8 +36,7 @@ export const matchStatus = pgEnum("match_status", [
 
 /**
  * Cómo se resolvió un versus. `bye` = pasó sin rival por cuadro incompleto.
- * `coinflip` ya no se produce: los empates los decide el host. Se conserva por
- * las salas que se jugaron con la regla anterior.
+ * `coinflip` = el host tiró la moneda en un empate (sale de `tiebreak_seed`).
  */
 export const decidedBy = pgEnum("decided_by", ["votes", "coinflip", "host", "bye"]);
 

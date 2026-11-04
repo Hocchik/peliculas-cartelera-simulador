@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { Crown, Users } from "lucide-react";
 
+import { CoinflipReveal } from "@/components/bracket/coinflip-reveal";
 import { BracketPhase } from "@/components/phases/bracket-phase";
 import { DrawPhase } from "@/components/phases/draw-phase";
 import { FinishedPhase } from "@/components/phases/finished-phase";
@@ -119,6 +120,12 @@ export default async function SalaPage({ params }: { params: Promise<{ code: str
       </header>
 
       <PhaseView state={state} />
+
+      {/* Fuera de PhaseView: si la final se define con moneda, la sala pasa a
+          `finished` en el mismo refresh y la animación no debe desmontarse. */}
+      {(room.phase === "bracket" || room.phase === "finished") && (
+        <CoinflipReveal matches={state.matches} />
+      )}
 
       {me.isHost && <HostControls code={room.code} phase={room.phase} />}
 

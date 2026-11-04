@@ -89,15 +89,18 @@ export async function computeRoomVersion(room: Room): Promise<string> {
       .innerJoin(matches, eq(votes.matchId, matches.id))
       .where(eq(matches.roomId, room.id));
 
-    const [decidedStats] = await db()
-      .select({ total: count() })
+    const byStatus = await db()
+      .select({ status: matches.status, total: count() })
       .from(matches)
-      .where(and(eq(matches.roomId, room.id), eq(matches.status, "decided")));
+      .where(eq(matches.roomId, room.id))
+      .groupBy(matches.status);
+    const countOf = (status: string) => byStatus.find((row) => row.status === status)?.total ?? 0;
 
     return roomVersion({
       ...fingerprint,
       voteCount: voteStats.total,
-      decidedCount: decidedStats.total,
+      decidedCount: countOf("decided"),
+      tiedCount: countOf("tiebreak"),
     });
   }
 

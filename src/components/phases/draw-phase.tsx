@@ -20,8 +20,9 @@ export function DrawPhase({ state }: { state: RoomState }) {
             <Shuffle className="text-primary size-5" /> El cuadro está sorteado
           </CardTitle>
           <CardDescription>
-            Las más aprobadas quedaron de cabezas de serie, en cuartos distintos del cuadro, para
-            que no se eliminen entre ellas de entrada. El resto salió al azar.
+            Cada película quedó sembrada según cuántos la aprobaron: las favoritas arrancan contra
+            las menos votadas y no pueden cruzarse entre ellas hasta el final del cuadro. Los
+            empates de aprobaciones se sortearon.
             {byes > 0 &&
               ` Como no llegaron a llenar el cuadro, ${byes} ${
                 byes === 1 ? "cruce pasa" : "cruces pasan"

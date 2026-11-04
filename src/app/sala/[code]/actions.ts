@@ -1,6 +1,6 @@
 "use server";
 
-import { and, count, eq, gt, lte } from "drizzle-orm";
+import { and, count, eq, gt, lte, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
@@ -28,6 +28,7 @@ import {
   decideMatchByHost,
   generateBracket,
   resolveOpenRound,
+  settleTieByCoinflip,
 } from "@/lib/tournament";
 
 export type ActionResult = { ok: true } | { ok: false; error: string };
@@ -324,20 +325,24 @@ export async function castVote(input: {
     return { ok: false, error: "Esa película no juega este cruce" };
   }
 
-  try {
-    await db().insert(votes).values({
+  // Sigue habiendo un solo voto por persona y cruce (índice único): votar otra
+  // vez lo CAMBIA, no suma otro. El cambio solo vale mientras el cruce siga
+  // abierto: si se cerró entre la lectura de arriba y este insert, no se toca,
+  // para que el marcador no contradiga al ganador ya grabado.
+  await db()
+    .insert(votes)
+    .values({
       matchId: match.id,
       participantId: me.id,
       choiceMovieId: parsed.data.choiceMovieId,
+    })
+    .onConflictDoUpdate({
+      target: [votes.matchId, votes.participantId],
+      set: { choiceMovieId: parsed.data.choiceMovieId },
+      setWhere: sql`exists (select 1 from matches where matches.id = ${match.id} and matches.status = 'open')`,
     });
-  } catch (error) {
-    if (isUniqueViolation(error, "votes_match_participant_unq")) {
-      return { ok: false, error: "Ya votaste este cruce" };
-    }
-    throw error;
-  }
 
-  const closed = await closeRoundIfComplete(room, await memberCount(room.id));
+  const closed = await closeRoundIfComplete(room, await memberCount(room.id), match.round);
   if (closed?.finished) {
     await db().update(rooms).set({ phase: "finished" }).where(eq(rooms.id, room.id));
   }
@@ -498,8 +503,51 @@ export async function decideMatch(input: {
   return { ok: true };
 }
 
-/** Cierre forzado por el host, con los votos que haya. */
-export async function forceCloseRound(code: string): Promise<ActionResult> {
+/**
+ * El host desempata con una moneda. No sirve para cruces abiertos: la moneda es
+ * para empates, no un atajo para saltarse la votación.
+ */
+export async function flipCoin(input: { code: string; matchId: string }): Promise<ActionResult> {
+  const parsed = z.object({ code: z.string().min(1), matchId: z.string().uuid() }).safeParse(input);
+  if (!parsed.success) return { ok: false, error: "Datos inválidos" };
+
+  const auth = await requireHost(parsed.data.code);
+  if ("error" in auth) return { ok: false, error: auth.error };
+  const { room } = auth;
+
+  if (room.phase !== "bracket") {
+    return { ok: false, error: "No hay versus en juego" };
+  }
+
+  const [match] = await db()
+    .select()
+    .from(matches)
+    .where(and(eq(matches.id, parsed.data.matchId), eq(matches.roomId, room.id)))
+    .limit(1);
+
+  if (!match) return { ok: false, error: "Ese cruce no existe" };
+  if (match.status !== "tiebreak") {
+    return { ok: false, error: "La moneda solo se tira en un empate" };
+  }
+
+  const { finished } = await settleTieByCoinflip(room, match);
+  if (finished) {
+    await db().update(rooms).set({ phase: "finished" }).where(eq(rooms.id, room.id));
+  }
+
+  revalidatePath(`/sala/${room.code}`);
+  return { ok: true };
+}
+
+/**
+ * Cierre forzado por el host, con los votos que haya. `round` va atado desde el
+ * servidor (`.bind`): si mientras el host confirmaba votaron todos y la ronda
+ * avanzó sola, no se cierra la siguiente con cero votos.
+ */
+export async function forceCloseRound(round: number, code: string): Promise<ActionResult> {
+  const parsedRound = z.number().int().positive().safeParse(round);
+  if (!parsedRound.success) return { ok: false, error: "Datos inválidos" };
+
   const auth = await requireHost(code);
   if ("error" in auth) return { ok: false, error: auth.error };
   const { room } = auth;
@@ -508,7 +556,7 @@ export async function forceCloseRound(code: string): Promise<ActionResult> {
     return { ok: false, error: "No hay una ronda abierta" };
   }
 
-  const { finished } = await resolveOpenRound(room);
+  const { finished } = await resolveOpenRound(room, parsedRound.data);
   if (finished) {
     await db().update(rooms).set({ phase: "finished" }).where(eq(rooms.id, room.id));
   }

@@ -129,3 +129,38 @@
     @apply font-sans;
     }
 }
+/*
+ * Moneda de los desempates. `--coin-end` lo fija CoinflipReveal según quién
+ * ganó en el servidor: la animación muestra un resultado, nunca lo genera.
+ */
+@keyframes coin-toss {
+  0% {
+    transform: translateY(0) rotateY(0deg);
+  }
+  45% {
+    transform: translateY(-4.5rem) rotateY(calc(var(--coin-end) * 0.55));
+  }
+  100% {
+    transform: translateY(0) rotateY(var(--coin-end));
+  }
+}
+
+.coin-toss {
+  transform-style: preserve-3d;
+  animation: coin-toss 2.4s cubic-bezier(0.25, 0.7, 0.3, 1) forwards;
+}
+
+.coin-face {
+  backface-visibility: hidden;
+}
+
+.coin-back {
+  transform: rotateY(180deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* Duración mínima y no `none`: `animationend` tiene que dispararse igual. */
+  .coin-toss {
+    animation-duration: 1ms;
+  }
+}

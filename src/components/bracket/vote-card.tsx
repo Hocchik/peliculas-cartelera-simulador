@@ -1,10 +1,11 @@
 "use client";
 
-import { useState, useTransition } from "react";
-import { Check, Crown, Loader2, Scale } from "lucide-react";
+import { useOptimistic, useState, useTransition } from "react";
+import { Check, Coins, Crown, Loader2, Scale } from "lucide-react";
 
-import { castVote, decideMatch } from "@/app/sala/[code]/actions";
+import { castVote, decideMatch, flipCoin } from "@/app/sala/[code]/actions";
 import { PosterImage } from "@/components/movie/poster-image";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { MatchView, MovieView } from "@/lib/room-types";
 
@@ -61,35 +62,45 @@ export function VoteCard({
 }) {
   const [pending, start] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  // El voto se marca al instante; si el servidor lo rechaza, vuelve solo al
+  // valor real cuando termina la transición.
+  const [myChoice, setMyChoice] = useOptimistic(match.myChoice);
 
   const { movieA, movieB } = match;
   if (!movieA || !movieB) return null;
 
   const tied = match.status === "tiebreak";
-  const voted = match.myChoice !== null;
+  const voted = myChoice !== null;
 
-  function run(action: () => Promise<{ ok: boolean; error?: string }>) {
+  function run(action: () => Promise<{ ok: boolean; error?: string }>, optimistic?: string) {
     setError(null);
     start(async () => {
+      if (optimistic) setMyChoice(optimistic);
       const result = await action();
       if (!result.ok) setError(result.error ?? "No se pudo");
     });
   }
 
-  const vote = (movieId: string) =>
-    run(() => castVote({ code, matchId: match.id, choiceMovieId: movieId }));
+  // Mientras el cruce esté abierto se puede cambiar de opinión: tocar la otra
+  // reemplaza el voto. Tocar la que ya elegiste no hace nada.
+  const vote = (movieId: string) => {
+    if (movieId === myChoice) return;
+    run(() => castVote({ code, matchId: match.id, choiceMovieId: movieId }), movieId);
+  };
 
   const decide = (movieId: string) =>
     run(() => decideMatch({ code, matchId: match.id, winnerMovieId: movieId }));
+
+  const toss = () => run(() => flipCoin({ code, matchId: match.id }));
 
   return (
     <li className="space-y-2">
       <div className="flex items-stretch gap-2">
         <Side
           movie={movieA}
-          chosen={match.myChoice === movieA.id}
-          dimmed={voted && match.myChoice !== movieA.id}
-          disabled={voted || tied || pending}
+          chosen={myChoice === movieA.id}
+          dimmed={voted && myChoice !== movieA.id}
+          disabled={tied || pending}
           onPick={() => vote(movieA.id)}
         />
         <div className="text-muted-foreground grid shrink-0 place-items-center text-xs font-semibold">
@@ -105,9 +116,9 @@ export function VoteCard({
         </div>
         <Side
           movie={movieB}
-          chosen={match.myChoice === movieB.id}
-          dimmed={voted && match.myChoice !== movieB.id}
-          disabled={voted || tied || pending}
+          chosen={myChoice === movieB.id}
+          dimmed={voted && myChoice !== movieB.id}
+          disabled={tied || pending}
           onPick={() => vote(movieB.id)}
         />
       </div>
@@ -115,13 +126,22 @@ export function VoteCard({
       {tied && (
         <p className="text-primary flex items-center justify-center gap-1 text-xs font-medium">
           <Scale className="size-3.5" />
-          {isHost ? "Empate: elige tú quién pasa" : "Empate: lo decide el host"}
+          {isHost
+            ? "Empate: elige tú quién pasa o tira la moneda"
+            : "Empate: lo decide el host o la moneda"}
         </p>
+      )}
+
+      {tied && isHost && (
+        <Button variant="secondary" className="w-full" disabled={pending} onClick={toss}>
+          <Coins className="size-4" />
+          Tirar la moneda
+        </Button>
       )}
 
       {!tied && voted && !error && (
         <p className="text-muted-foreground text-center text-xs">
-          Votaste. Los conteos se ven cuando cierre la ronda.
+          Votaste. Puedes cambiarlo hasta que cierre la ronda; los conteos se ven al final.
         </p>
       )}
 

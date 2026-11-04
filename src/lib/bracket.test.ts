@@ -4,6 +4,7 @@ import {
   MAX_MOVIES,
   bracketSize,
   buildNextRound,
+  coinflip,
   createRng,
   drawSlots,
   initialMatches,
@@ -88,8 +89,18 @@ describe("drawSlots", () => {
     expect(a).toEqual(b);
   });
 
-  it("semillas distintas producen sorteos distintos", () => {
+  it("sin empates de aprobaciones, el cuadro sale solo del ranking: la semilla no cambia nada", () => {
     const draws = [1, 2, 3, 4, 5].map((seed) => drawSlots(nominees(16), seed).join(","));
+    expect(new Set(draws).size).toBe(1);
+  });
+
+  it("con empates de aprobaciones, semillas distintas producen sorteos distintos", () => {
+    // De a cuatro empatadas: 4,4,4,4,3,3,3,3,…
+    const porGrupos: Nominee[] = Array.from({ length: 16 }, (_, i) => ({
+      movieId: `m${i + 1}`,
+      approvals: 4 - Math.floor(i / 4),
+    }));
+    const draws = [1, 2, 3, 4, 5].map((seed) => drawSlots(porGrupos, seed).join(","));
     expect(new Set(draws).size).toBeGreaterThan(1);
   });
 
@@ -114,13 +125,24 @@ describe("drawSlots", () => {
     expect(slots).toHaveLength(16);
   });
 
-  it("reparte las películas sobrantes de forma aleatoria y no por aprobaciones", () => {
-    // Si el sorteo fuese un simple ranking, m5..m16 caerían siempre igual.
-    const a = drawSlots(nominees(16), 11).slice();
-    const b = drawSlots(nominees(16), 77).slice();
-    const tailA = a.filter((id) => id && !["m1", "m2", "m3", "m4"].includes(id));
-    const tailB = b.filter((id) => id && !["m1", "m2", "m3", "m4"].includes(id));
-    expect(tailA).not.toEqual(tailB);
+  it("en la primera ronda la más querida enfrenta a la menos querida (1-16, 2-15, …)", () => {
+    const slots = drawSlots(nominees(16), 11);
+    const rank = (id: string | null) => Number(id!.slice(1));
+    for (let i = 0; i < 16; i += 2) {
+      expect(rank(slots[i]) + rank(slots[i + 1])).toBe(17);
+    }
+  });
+
+  it("el top k no se cruza entre sí hasta la ronda en que quedan k (8 → cuartos, 4 → semis, 2 → final)", () => {
+    for (const seed of [3, 99, 2024]) {
+      const slots = drawSlots(nominees(16), seed);
+      for (const k of [2, 4, 8]) {
+        // Cada bloque de 16/k casillas es un subcuadro del que sale una sola.
+        const blockOf = (id: string) => Math.floor(slots.indexOf(id) / (16 / k));
+        const top = Array.from({ length: k }, (_, i) => blockOf(`m${i + 1}`));
+        expect(new Set(top).size).toBe(k);
+      }
+    }
   });
 
   it("desempata aprobaciones iguales sin caer siempre del mismo lado", () => {
@@ -209,6 +231,35 @@ describe("resolveMatch", () => {
 
   it("falla si el cruce no tiene participantes", () => {
     expect(() => resolveMatch({ ...base, movieAId: null, movieBId: null }, {})).toThrow();
+  });
+});
+
+describe("coinflip", () => {
+  const cruce = (key: string) => ({ key, movieAId: "a", movieBId: "b" });
+
+  it("es reproducible: la misma moneda cae siempre del mismo lado", () => {
+    expect(coinflip(cruce("x"), 42)).toEqual(coinflip(cruce("x"), 42));
+  });
+
+  it("queda grabada como moneda y elige a una de las dos", () => {
+    const outcome = coinflip(cruce("x"), 42);
+    expect(outcome.decidedBy).toBe("coinflip");
+    expect(["a", "b"]).toContain(outcome.winnerId);
+  });
+
+  it("es pareja: en muchos cruces cae más o menos la mitad de cada lado", () => {
+    const heads = Array.from({ length: 2000 }, (_, i) => coinflip(cruce(`match-${i}`), 7)).filter(
+      (outcome) => outcome.winnerId === "a",
+    ).length;
+    expect(heads).toBeGreaterThan(900);
+    expect(heads).toBeLessThan(1100);
+  });
+
+  it("cada sala tira su propia moneda para el mismo cruce", () => {
+    const sides = new Set(
+      Array.from({ length: 32 }, (_, seed) => coinflip(cruce("mismo"), seed).winnerId),
+    );
+    expect(sides.size).toBe(2);
   });
 });
 

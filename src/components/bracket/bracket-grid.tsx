@@ -70,7 +70,7 @@ function MatchCard({
       />
       {match.status === "tiebreak" && (
         <p className="text-primary flex items-center gap-1 px-2 py-1 text-[11px] font-medium">
-          <Scale className="size-3" /> Empate: decide el host
+          <Scale className="size-3" /> Empate: host o moneda
         </p>
       )}
       {match.decidedBy === "host" && (

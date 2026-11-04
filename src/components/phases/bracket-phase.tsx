@@ -66,7 +66,7 @@ export function BracketPhase({ state }: { state: RoomState }) {
         {me.isHost && missing > 0 && open.length > 0 && (
           <HostButton
             code={room.code}
-            action={forceCloseRound}
+            action={forceCloseRound.bind(null, round)}
             label="Cerrar la ronda igual"
             variant="secondary"
             confirm={`Faltan ${missing} ${
