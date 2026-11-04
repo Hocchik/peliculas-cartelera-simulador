@@ -31,12 +31,25 @@ export function MovieSearch({
   const [addError, setAddError] = useState<string | null>(null);
   const [adding, startAdding] = useTransition();
 
+  // Si el buscador se bloquea con una búsqueda a medias (otro completó las 16,
+  // o se te acabó el cupo), se vacía: el input deshabilitado no deja borrar el
+  // texto y la lista quedaba colgada con todo desactivado. Ajuste durante el
+  // render, sin efecto, para no pintar ni un cuadro con la lista vieja.
+  const [wasDisabled, setWasDisabled] = useState(disabled);
+  if (disabled !== wasDisabled) {
+    setWasDisabled(disabled);
+    if (disabled) {
+      setQuery("");
+      setAddError(null);
+    }
+  }
+
   const term = query.trim();
-  const active = term.length >= MIN_QUERY;
+  const active = !disabled && term.length >= MIN_QUERY;
 
   // Todo lo visible se deriva del término actual. Así los resultados de una
   // búsqueda anterior nunca se quedan colgando bajo un texto que ya cambió.
-  const results = loaded.term === term ? loaded.results : [];
+  const results = active && loaded.term === term ? loaded.results : [];
   const searching = active && loaded.term !== term && failedTerm !== term;
   const error =
     addError ?? (failedTerm === term ? "No se pudo buscar en TMDB. Reintenta." : null);

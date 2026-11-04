@@ -129,38 +129,187 @@
     @apply font-sans;
     }
 }
+
 /*
- * Moneda de los desempates. `--coin-end` lo fija CoinflipReveal según quién
- * ganó en el servidor: la animación muestra un resultado, nunca lo genera.
+ * Moneda de los desempates, lanzada como de verdad: acostada en el piso, sube
+ * girando de punta a punta, cae, rebota, se tambalea y queda quieta; recién ahí
+ * la cámara se acerca para mostrar la cara que salió.
+ *
+ * `--coin-end` lo fija CoinflipReveal según quién ganó en el servidor: la
+ * animación muestra un resultado, nunca lo genera (invariante 5).
+ *
+ * Capas, de afuera hacia adentro:
+ *   .coin-table  el piso, inclinado: la moneda acostada se ve como una elipse.
+ *   .coin-lift   solo sube y baja, con gravedad (frena al subir, acelera al caer).
+ *   .coin        solo gira, a velocidad constante. Separarlo de la subida evita
+ *                que el giro también "frene" en lo alto, que delata la animación.
  */
-@keyframes coin-toss {
-  0% {
-    transform: translateY(0) rotateY(0deg);
-  }
-  45% {
-    transform: translateY(-4.5rem) rotateY(calc(var(--coin-end) * 0.55));
-  }
-  100% {
-    transform: translateY(0) rotateY(var(--coin-end));
-  }
+.coin-scene {
+  position: relative;
+  height: 15rem;
+  perspective: 800px;
+  perspective-origin: 50% 25%;
 }
 
-.coin-toss {
+.coin-table {
+  position: absolute;
+  bottom: 0.5rem;
+  left: 50%;
+  width: 8rem;
+  height: 8rem;
+  margin-left: -4rem;
   transform-style: preserve-3d;
-  animation: coin-toss 2.4s cubic-bezier(0.25, 0.7, 0.3, 1) forwards;
+  transform: rotateX(62deg);
+  transition: transform 0.8s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+/* Tras caer, la moneda se levanta hacia la cámara con la cara ganadora. */
+.coin-scene[data-landed] .coin-table {
+  transform: translateY(-3.5rem) rotateX(0deg) scale(1.2);
+}
+
+.coin-lift,
+.coin {
+  position: absolute;
+  inset: 0;
+  transform-style: preserve-3d;
+}
+
+.coin-lift {
+  animation: coin-lift 2.6s 0.5s both;
+}
+
+.coin {
+  animation: coin-spin 2.6s 0.5s both;
+}
+
+.coin-face,
+.coin-edge,
+.coin-shadow {
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
 }
 
 .coin-face {
+  overflow: hidden;
+  border: 5px solid var(--primary);
+  box-shadow: inset 0 0 0 2px rgb(0 0 0 / 0.3);
   backface-visibility: hidden;
+  transform: translateZ(5px);
 }
 
-.coin-back {
-  transform: rotateY(180deg);
+.coin-face[data-back] {
+  transform: rotateX(180deg) translateZ(5px);
+}
+
+/* Discos apilados entre las dos caras: son el canto, lo que se ve de perfil. */
+.coin-edge {
+  background: color-mix(in oklab, var(--primary) 60%, black);
+}
+
+.coin-shadow {
+  background: radial-gradient(closest-side, rgb(0 0 0 / 0.65), transparent);
+  transform: translateZ(-6px);
+  animation: coin-shadow 2.6s 0.5s both;
+}
+
+.coin-scene[data-landed] .coin-shadow {
+  visibility: hidden;
+}
+
+/* Mismos tramos que coin-shadow: subida, caída, rebote, reposo. */
+@keyframes coin-lift {
+  0% {
+    transform: translateZ(0);
+    animation-timing-function: cubic-bezier(0.25, 0.6, 0.45, 1);
+  }
+  45% {
+    transform: translateZ(10rem);
+    animation-timing-function: cubic-bezier(0.55, 0, 0.75, 0.4);
+  }
+  78% {
+    transform: translateZ(0);
+    animation-timing-function: ease-out;
+  }
+  85% {
+    transform: translateZ(1.25rem);
+    animation-timing-function: ease-in;
+  }
+  91%,
+  100% {
+    transform: translateZ(0);
+  }
+}
+
+@keyframes coin-shadow {
+  0% {
+    transform: translateZ(-6px) scale(1);
+    opacity: 0.8;
+    animation-timing-function: cubic-bezier(0.25, 0.6, 0.45, 1);
+  }
+  45% {
+    transform: translateZ(-6px) scale(0.4);
+    opacity: 0.2;
+    animation-timing-function: cubic-bezier(0.55, 0, 0.75, 0.4);
+  }
+  78% {
+    transform: translateZ(-6px) scale(1);
+    opacity: 0.8;
+    animation-timing-function: ease-out;
+  }
+  85% {
+    transform: translateZ(-6px) scale(0.85);
+    opacity: 0.6;
+    animation-timing-function: ease-in;
+  }
+  91%,
+  100% {
+    transform: translateZ(-6px) scale(1);
+    opacity: 0.8;
+  }
+}
+
+/*
+ * Giro parejo hasta tocar el piso (78 %), ya plana con la cara que toca hacia
+ * arriba. Después, el rebote la inclina un poco y se tambalea cada vez menos.
+ */
+@keyframes coin-spin {
+  0% {
+    transform: rotateX(0deg) rotateY(0deg);
+    animation-timing-function: linear;
+  }
+  78% {
+    transform: rotateX(var(--coin-end)) rotateY(0deg);
+    animation-timing-function: ease-out;
+  }
+  85% {
+    transform: rotateX(calc(var(--coin-end) + 14deg)) rotateY(0deg);
+    animation-timing-function: ease-in;
+  }
+  91% {
+    transform: rotateX(var(--coin-end)) rotateY(6deg);
+  }
+  95% {
+    transform: rotateX(var(--coin-end)) rotateY(-3deg);
+  }
+  98% {
+    transform: rotateX(var(--coin-end)) rotateY(1deg);
+  }
+  100% {
+    transform: rotateX(var(--coin-end)) rotateY(0deg);
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
   /* Duración mínima y no `none`: `animationend` tiene que dispararse igual. */
-  .coin-toss {
+  .coin-lift,
+  .coin,
+  .coin-shadow {
     animation-duration: 1ms;
+    animation-delay: 0s;
+  }
+  .coin-table {
+    transition: none;
   }
 }

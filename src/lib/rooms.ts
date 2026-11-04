@@ -26,8 +26,13 @@ export type { MatchView, MemberView, MovieView, VoterProgress };
 export type RoomState = {
   room: Room;
   me: Participant | null;
-  /** Quien mira fue expulsado por el host. En ese caso `me` es `null`. */
-  kicked: boolean;
+  /**
+   * Si el host sacó a quien mira (`me` es `null`): "kicked" puede volver a
+   * entrar; "banned" no, desde este navegador.
+   */
+  removed: "kicked" | "banned" | null;
+  /** Su apodo, para ofrecerle volver a entrar con el mismo. */
+  removedNickname: string | null;
   /** Solo los que siguen en la sala: los expulsados no cuentan ni votan. */
   members: Participant[];
   movies: MovieView[];
@@ -128,8 +133,8 @@ export async function getRoomState(
     .orderBy(asc(participants.createdAt));
 
   const mine = deviceToken ? everyone.find((p) => p.deviceToken === deviceToken) : undefined;
-  const kicked = Boolean(mine?.kickedAt);
-  const me = mine && !kicked ? mine : null;
+  const removed = mine?.kickedAt ? (mine.banned ? "banned" : "kicked") : null;
+  const me = mine && !removed ? mine : null;
   const members = everyone.filter((p) => !p.kickedAt);
 
   const rows = await db()
@@ -173,7 +178,8 @@ export async function getRoomState(
   const state: RoomState = {
     room,
     me,
-    kicked,
+    removed,
+    removedNickname: removed ? (mine?.nickname ?? null) : null,
     members,
     movies: movieViews,
     myNominations: me ? rows.filter((row) => row.addedBy === me.id).length : 0,

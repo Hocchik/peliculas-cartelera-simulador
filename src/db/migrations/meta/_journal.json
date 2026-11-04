@@ -29,6 +29,13 @@
       "when": 1793775145488,
       "tag": "0003_kicked_participants",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1793777314283,
+      "tag": "0004_banned_participants",
+      "breakpoints": true
     }
   ]
 }

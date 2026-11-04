@@ -8,7 +8,18 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
-export function JoinRoomForm({ code, autoFocus }: { code?: string; autoFocus?: boolean }) {
+export function JoinRoomForm({
+  code,
+  autoFocus,
+  defaultNickname,
+  submitLabel = "Entrar",
+}: {
+  code?: string;
+  autoFocus?: boolean;
+  /** Para quien vuelve tras ser sacado: su apodo de antes, ya escrito. */
+  defaultNickname?: string;
+  submitLabel?: string;
+}) {
   const [state, action, pending] = useActionState<FormState, FormData>(joinRoom, null);
 
   return (
@@ -22,6 +33,7 @@ export function JoinRoomForm({ code, autoFocus }: { code?: string; autoFocus?: b
           maxLength={24}
           autoComplete="nickname"
           autoFocus={autoFocus}
+          defaultValue={defaultNickname}
           placeholder="Josué"
         />
       </div>
@@ -44,7 +56,7 @@ export function JoinRoomForm({ code, autoFocus }: { code?: string; autoFocus?: b
 
       <Button type="submit" disabled={pending} variant="secondary" className="w-full">
         {pending && <Loader2 className="size-4 animate-spin" />}
-        Entrar
+        {submitLabel}
       </Button>
     </form>
   );

@@ -5,166 +5,230 @@ import { roundName } from "@/lib/bracket";
 import { cn } from "@/lib/utils";
 import type { MatchView, MovieView } from "@/lib/room-types";
 
+/*
+ * Medidas compartidas. El hueco entre rondas se reparte en dos mitades: la
+ * llave "]" que sale del par ocupa la primera y el tramo que entra al cruce
+ * siguiente, la segunda. Por eso `GAP` es el doble de `HALF`.
+ */
+const GAP = "gap-x-6 sm:gap-x-10";
+const HALF = "w-3 sm:w-5";
+
 function Contender({
   movie,
+  score,
   won,
   lost,
-  score,
-  compact,
+  bye,
 }: {
   movie: MovieView | null;
+  score: number | null;
   won: boolean;
   lost: boolean;
-  score: number | null;
-  compact: boolean;
+  /** El rival no existe (cuadro incompleto), no es que falte definirlo. */
+  bye: boolean;
 }) {
-  const row = compact ? "px-1.5 py-1 text-[11px]" : "px-2 py-1.5 text-xs";
-
-  if (!movie) {
-    return <p className={cn("text-muted-foreground italic", row)}>Bye</p>;
-  }
-
   return (
     <div
+      title={movie?.title ?? (bye ? "Bye" : "Por definir")}
       className={cn(
-        "flex items-center gap-2",
-        row,
-        won && "text-primary font-semibold",
-        lost && "text-muted-foreground line-through opacity-60",
+        "flex items-center justify-between gap-1 border-l-2 border-transparent py-0.5 pr-1.5 pl-0.5",
+        won && "border-primary",
+        lost && "opacity-45 grayscale",
       )}
     >
-      <PosterImage
-        path={movie.posterPath}
-        alt={movie.title}
-        size="w92"
-        className={cn("shrink-0 rounded-sm", compact ? "h-6 w-4" : "h-8 w-6")}
-      />
-      <span className="min-w-0 flex-1 truncate">{movie.title}</span>
-      {score !== null && <span className="tabular-nums">{score}</span>}
+      {movie ? (
+        <PosterImage
+          path={movie.posterPath}
+          alt={movie.title}
+          size="w92"
+          className="h-[30px] w-5 shrink-0 rounded-sm sm:h-9 sm:w-6"
+        />
+      ) : (
+        <span className="border-border h-[30px] w-5 shrink-0 rounded-sm border border-dashed sm:h-9 sm:w-6" />
+      )}
+      <span
+        className={cn(
+          "text-xs font-semibold tabular-nums",
+          won ? "text-primary" : "text-muted-foreground",
+        )}
+      >
+        {bye ? "bye" : (score ?? "–")}
+      </span>
     </div>
   );
 }
 
-function MatchCard({
+/** Insignia en la esquina: cómo se resolvió, o si espera desempate. */
+function Mark({ match, isFinal }: { match: MatchView; isFinal: boolean }) {
+  const mark =
+    match.status === "tiebreak"
+      ? { Icon: Scale, label: "Empate: lo decide el host o la moneda", accent: true }
+      : isFinal && match.winnerId
+        ? { Icon: Trophy, label: "Campeona", accent: true }
+        : match.decidedBy === "coinflip"
+          ? { Icon: Coins, label: "Se decidió con la moneda", accent: false }
+          : match.decidedBy === "host"
+            ? { Icon: Crown, label: "Lo decidió el host", accent: false }
+            : null;
+  if (!mark) return null;
+
+  return (
+    <span
+      title={mark.label}
+      aria-label={mark.label}
+      className={cn(
+        "bg-background absolute -top-1.5 -right-1.5 grid size-4 place-items-center rounded-full border",
+        mark.accent ? "border-primary text-primary" : "text-muted-foreground",
+      )}
+    >
+      <mark.Icon className="size-2.5" />
+    </span>
+  );
+}
+
+function MatchBox({
   match,
   isFinal,
-  compact,
-  className,
-  style,
+  reveal,
+  delay,
 }: {
-  match: MatchView;
+  match: MatchView | null;
   isFinal: boolean;
-  compact: boolean;
-  className?: string;
-  style?: React.CSSProperties;
+  reveal: boolean;
+  delay: number;
 }) {
+  // Los cruces de rondas futuras todavía no existen en la base: se dibujan
+  // vacíos para que el cuadro tenga su forma completa desde el principio.
+  const decided = match?.winnerId != null;
+  const isBye = match?.decidedBy === "bye";
+
   return (
-    <article
-      style={style}
-      className={cn("divide-border bg-card divide-y overflow-hidden rounded-lg border", className)}
+    <div
+      style={reveal ? { animationDelay: `${delay}ms` } : undefined}
+      className={cn(
+        "relative w-14 sm:w-[4.5rem]",
+        reveal && "animate-in fade-in slide-in-from-bottom-2 fill-mode-backwards",
+      )}
     >
-      <Contender
-        movie={match.movieA}
-        won={match.winnerId !== null && match.winnerId === match.movieA?.id}
-        lost={match.winnerId !== null && match.winnerId !== match.movieA?.id}
-        score={match.tally?.a ?? null}
-        compact={compact}
-      />
-      <Contender
-        movie={match.movieB}
-        won={match.winnerId !== null && match.winnerId === match.movieB?.id}
-        lost={match.winnerId !== null && match.winnerId !== match.movieB?.id}
-        score={match.tally?.b ?? null}
-        compact={compact}
-      />
-      {match.status === "tiebreak" && (
-        <p className="text-primary flex items-center gap-1 px-2 py-1 text-[11px] font-medium">
-          <Scale className="size-3" /> Empate: host o moneda
-        </p>
-      )}
-      {match.decidedBy === "host" && (
-        <p className="text-muted-foreground flex items-center gap-1 px-2 py-1 text-[11px]">
-          <Crown className="size-3" /> Lo decidió el host
-        </p>
-      )}
-      {match.decidedBy === "coinflip" && (
-        <p className="text-muted-foreground flex items-center gap-1 px-2 py-1 text-[11px]">
-          <Coins className="size-3" /> Moneda al aire
-        </p>
-      )}
-      {isFinal && match.winnerId && (
-        <p className="text-primary flex items-center gap-1 px-2 py-1 text-[11px] font-semibold">
-          <Trophy className="size-3" /> Campeona
-        </p>
-      )}
-    </article>
+      <article
+        className={cn(
+          "bg-card divide-foreground/10 border-foreground/15 divide-y overflow-hidden rounded-md border",
+          match?.status === "open" && "border-foreground/35",
+          match?.status === "tiebreak" && "border-primary",
+        )}
+      >
+        {(["A", "B"] as const).map((side) => {
+          const movie = side === "A" ? (match?.movieA ?? null) : (match?.movieB ?? null);
+          return (
+            <Contender
+              key={side}
+              movie={movie}
+              score={side === "A" ? (match?.tally?.a ?? null) : (match?.tally?.b ?? null)}
+              won={decided && movie !== null && match?.winnerId === movie.id}
+              lost={decided && movie !== null && match?.winnerId !== movie.id}
+              bye={isBye && movie === null}
+            />
+          );
+        })}
+      </article>
+      {match && <Mark match={match} isFinal={isFinal} />}
+    </div>
   );
 }
 
 /**
- * El cuadro completo, ronda por ronda en horizontal: es la forma en que se lee
- * un cuadro de Mundial y la única en la que se ve de un vistazo quién se cruza
- * con quién. Cuando no entra, se recorre de lado; los márgenes negativos dejan
- * que ese scroll llegue al borde de la pantalla en móvil, sin cortar el
- * contenido a media tarjeta.
+ * El cuadro, a lo Riot: rondas en columnas, cada cruce centrado entre los dos
+ * que lo alimentan y unido a ellos con líneas. Solo pósters y votos; los
+ * nombres ya están en los versus, y sin ellos las cuatro rondas de un cuadro
+ * de 16 entran a lo ancho de un celular (~300 px) sin recorrerlo de lado.
+ *
+ * La alineación sale sola: todas las columnas miden lo mismo (la grilla las
+ * estira a la altura de la primera ronda) y cada una se reparte en partes
+ * iguales, así que el centro de un cruce de la ronda r+1 cae justo entre los
+ * centros de su par en la ronda r.
  */
 export function BracketGrid({
   matches,
   rounds,
   reveal = false,
-  compact = false,
 }: {
   matches: MatchView[];
   rounds: number;
+  /** Animación de entrada del sorteo, ronda por ronda. */
   reveal?: boolean;
-  /**
-   * Durante las llaves el cuadro es contexto, no la acción: va más angosto
-   * (cuatro rondas en ~650 px en vez de ~800) para dejarle el ancho a los versus.
-   */
-  compact?: boolean;
 }) {
   const size = 2 ** rounds;
+  const roundList = Array.from({ length: rounds }, (_, index) => index + 1);
 
   return (
-    <div className="-mx-4 overflow-x-auto px-4 pb-2 xl:mx-0 xl:px-0">
-      <div className={cn("flex min-w-max", compact ? "gap-2" : "gap-3")}>
-        {Array.from({ length: rounds }, (_, index) => index + 1).map((round) => {
-          const ofRound = matches
-            .filter((match) => match.round === round)
-            .sort((a, b) => a.slot - b.slot);
+    // El relleno de arriba y a los lados deja sitio a las insignias de las
+    // esquinas: `overflow-x-auto` también recorta en vertical.
+    <div className="-mx-4 overflow-x-auto px-4 pt-1.5 pb-2 sm:mx-0 sm:px-2">
+      <div
+        className={cn("mx-auto grid w-max", GAP)}
+        style={{ gridTemplateColumns: `repeat(${rounds}, auto)` }}
+      >
+        {roundList.map((round) => (
+          <h3
+            key={`h${round}`}
+            className="bg-muted text-muted-foreground mb-2 truncate rounded px-1.5 py-1 text-center text-[10px] font-semibold tracking-wide uppercase"
+          >
+            {/* Corto: la columna mide 56 px en el celular. */}
+            {roundName(round, size).replace(" de final", "").replace("Semifinales", "Semis")}
+          </h3>
+        ))}
+
+        {roundList.map((round) => {
+          const count = size / 2 ** round;
+          const isFinal = round === rounds;
+          const bySlot = new Map(
+            matches.filter((match) => match.round === round).map((match) => [match.slot, match]),
+          );
+          const slots = Array.from({ length: count }, (_, slot) => bySlot.get(slot) ?? null);
+
+          // De a pares, porque cada par desemboca en un cruce de la ronda
+          // siguiente. La final queda sola.
+          const groups = isFinal
+            ? [slots]
+            : slots.flatMap((_, i) => (i % 2 ? [] : [slots.slice(i, i + 2)]));
 
           return (
-            <section
-              key={round}
-              className={cn("shrink-0", compact ? "w-40 space-y-1.5" : "w-48 space-y-2")}
-            >
-              <h3 className="text-muted-foreground text-xs font-semibold tracking-wide uppercase">
-                {roundName(round, size)}
-              </h3>
-
-              {ofRound.length === 0 ? (
-                <p className="text-muted-foreground rounded-lg border border-dashed p-3 text-xs">
-                  Por definir
-                </p>
-              ) : (
-                ofRound.map((match, position) => (
-                  <MatchCard
-                    key={match.id}
-                    match={match}
-                    isFinal={round === rounds}
-                    compact={compact}
-                    style={
-                      reveal
-                        ? { animationDelay: `${(round - 1) * 240 + position * 80}ms` }
-                        : undefined
-                    }
-                    className={cn(
-                      reveal && "animate-in fade-in slide-in-from-bottom-2 fill-mode-backwards",
-                    )}
-                  />
-                ))
-              )}
-            </section>
+            <div key={round} className="flex flex-col">
+              {groups.map((group, groupIndex) => (
+                <div key={groupIndex} className="relative flex flex-1 flex-col">
+                  {group.map((match, inGroup) => {
+                    const slot = groupIndex * 2 + inGroup;
+                    return (
+                      <div key={slot} className="relative flex flex-1 items-center py-1">
+                        {/* Tramo que entra desde la llave de la ronda anterior. */}
+                        {round > 1 && (
+                          <span
+                            aria-hidden
+                            className={cn("border-border absolute top-1/2 right-full border-t", HALF)}
+                          />
+                        )}
+                        <MatchBox
+                          match={match}
+                          isFinal={isFinal}
+                          reveal={reveal}
+                          delay={(round - 1) * 240 + slot * 70}
+                        />
+                      </div>
+                    );
+                  })}
+                  {/* La llave "]": une los centros del par (al 25 % y al 75 %). */}
+                  {!isFinal && (
+                    <span
+                      aria-hidden
+                      className={cn(
+                        "border-border absolute top-1/4 bottom-1/4 left-full rounded-r-sm border-y border-r",
+                        HALF,
+                      )}
+                    />
+                  )}
+                </div>
+              ))}
+            </div>
           );
         })}
       </div>
