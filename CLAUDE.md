@@ -311,10 +311,11 @@ para que los demás no se queden mirando algo que ya no existe.
     un botón (`BracketDialog`). Esa fase usa `max-w-[96rem]`; el resto, `max-w-4xl`.
   - Las columnas de la lista van por **container query**, no por breakpoint.
   - El "Pasa" del host en cruces abiertos va detrás de "Decidir a mano"; en empates, siempre.
-- **El cuadro es a lo Riot** (`BracketGrid`): columnas por ronda, cada cruce centrado entre los
-  dos que lo alimentan y unido con líneas. Solo póster y votos, sin nombres (van en los versus):
-  un cuadro de 16 entra en ~300 px. La alineación sale de columnas de igual alto repartidas en
-  partes iguales; no se calcula con JS.
+- **El cuadro es a lo Riot** (`BracketGrid`): columnas por ronda, de izquierda a derecha, cada
+  cruce centrado entre los dos que lo alimentan y unido con líneas. Cada cruce lleva póster,
+  título y votos: ya no comparte pantalla con los versus, así que en el celular se recorre de
+  lado. La alineación sale de columnas de igual alto repartidas en partes iguales; no se calcula
+  con JS. Se probó una pirámide (octavos abajo, final arriba) y se descartó.
 - **La moneda se lanza como de verdad** (`CoinflipReveal` + `globals.css`): acostada en el piso,
   sube girando de punta a punta, cae, rebota, se tambalea y la cámara se acerca a la cara que
   salió (cara = A, sello = B). Subida y giro van en capas separadas para que el giro no "frene"

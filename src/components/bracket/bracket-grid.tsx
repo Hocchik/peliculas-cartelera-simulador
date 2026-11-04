@@ -31,7 +31,7 @@ function Contender({
     <div
       title={movie?.title ?? (bye ? "Bye" : "Por definir")}
       className={cn(
-        "flex items-center justify-between gap-1 border-l-2 border-transparent py-0.5 pr-1.5 pl-0.5",
+        "flex items-center gap-1.5 border-l-2 border-transparent py-0.5 pr-1.5 pl-0.5",
         won && "border-primary",
         lost && "opacity-45 grayscale",
       )}
@@ -39,7 +39,7 @@ function Contender({
       {movie ? (
         <PosterImage
           path={movie.posterPath}
-          alt={movie.title}
+          alt=""
           size="w92"
           className="h-[30px] w-5 shrink-0 rounded-sm sm:h-9 sm:w-6"
         />
@@ -48,11 +48,20 @@ function Contender({
       )}
       <span
         className={cn(
-          "text-xs font-semibold tabular-nums",
+          "min-w-0 flex-1 truncate text-[11px] leading-tight sm:text-xs",
+          won && "text-primary font-semibold",
+          !movie && "text-muted-foreground italic",
+        )}
+      >
+        {movie?.title ?? (bye ? "Bye" : "Por definir")}
+      </span>
+      <span
+        className={cn(
+          "shrink-0 text-xs font-semibold tabular-nums",
           won ? "text-primary" : "text-muted-foreground",
         )}
       >
-        {bye ? "bye" : (score ?? "–")}
+        {bye ? "" : (score ?? "–")}
       </span>
     </div>
   );
@@ -106,7 +115,7 @@ function MatchBox({
     <div
       style={reveal ? { animationDelay: `${delay}ms` } : undefined}
       className={cn(
-        "relative w-14 sm:w-[4.5rem]",
+        "relative w-32 sm:w-40",
         reveal && "animate-in fade-in slide-in-from-bottom-2 fill-mode-backwards",
       )}
     >
@@ -138,9 +147,10 @@ function MatchBox({
 
 /**
  * El cuadro, a lo Riot: rondas en columnas, cada cruce centrado entre los dos
- * que lo alimentan y unido a ellos con líneas. Solo pósters y votos; los
- * nombres ya están en los versus, y sin ellos las cuatro rondas de un cuadro
- * de 16 entran a lo ancho de un celular (~300 px) sin recorrerlo de lado.
+ * que lo alimentan y unido a ellos con líneas. Cada cruce lleva póster, título
+ * y votos. Ya no comparte pantalla con los versus (va en una pestaña en el
+ * celular y en un modal en escritorio), así que puede ocupar lo que necesita:
+ * en el celular se recorre de lado.
  *
  * La alineación sale sola: todas las columnas miden lo mismo (la grilla las
  * estira a la altura de la primera ronda) y cada una se reparte en partes
@@ -173,8 +183,7 @@ export function BracketGrid({
             key={`h${round}`}
             className="bg-muted text-muted-foreground mb-2 truncate rounded px-1.5 py-1 text-center text-[10px] font-semibold tracking-wide uppercase"
           >
-            {/* Corto: la columna mide 56 px en el celular. */}
-            {roundName(round, size).replace(" de final", "").replace("Semifinales", "Semis")}
+            {roundName(round, size)}
           </h3>
         ))}
 
