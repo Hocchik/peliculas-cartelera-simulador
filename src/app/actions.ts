@@ -103,6 +103,12 @@ export async function joinRoom(_prev: FormState, formData: FormData): Promise<Fo
     .where(and(eq(participants.roomId, room.id), eq(participants.deviceToken, deviceToken)))
     .limit(1);
 
+  // La fila del expulsado se conserva justamente para esto: ese navegador no
+  // vuelve a entrar, ni con otro apodo.
+  if (existing?.kickedAt) {
+    return { error: "El host te sacó de esta sala" };
+  }
+
   if (!existing) {
     if (room.phase !== "nominating") {
       return { error: "Esa sala ya cerró las nominaciones y no admite gente nueva" };

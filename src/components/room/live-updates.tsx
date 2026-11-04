@@ -29,7 +29,9 @@ export function LiveUpdates({ code, version }: { code: string; version: string }
         const res = await fetch(`/api/sala/${code}/pulse`, { cache: "no-store" });
         // El host cerró la sala: refrescar lleva a la pantalla de "no existe"
         // en vez de dejar a la gente mirando algo que ya no está.
-        if (res.status === 404) {
+        // 403: el host lo sacó de la sala. Mismo trato, y se deja de preguntar.
+        if (res.status === 404 || res.status === 403) {
+          stopped = true;
           router.refresh();
           return;
         }

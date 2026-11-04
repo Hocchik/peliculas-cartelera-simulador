@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
-import { Crown, Users } from "lucide-react";
 
 import { CoinflipReveal } from "@/components/bracket/coinflip-reveal";
 import { BracketPhase } from "@/components/phases/bracket-phase";
@@ -11,8 +10,8 @@ import { SeedingPhase } from "@/components/phases/seeding-phase";
 import { HostControls } from "@/components/room/host-controls";
 import { JoinRoomForm } from "@/components/room/join-room-form";
 import { LiveUpdates } from "@/components/room/live-updates";
+import { MemberList } from "@/components/room/member-list";
 import { RoomCode } from "@/components/room/room-code";
-import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { normalizeRoomCode } from "@/lib/codes";
 import { findRoomByCode, getRoomState, type RoomState } from "@/lib/rooms";
@@ -66,6 +65,22 @@ export default async function SalaPage({ params }: { params: Promise<{ code: str
 
   const { room, me, members, version } = state;
 
+  if (state.kicked) {
+    return (
+      <main className="mx-auto flex min-h-svh w-full max-w-md flex-col justify-center px-4 py-10">
+        <Card>
+          <CardHeader>
+            <CardTitle>{room.name}</CardTitle>
+            <CardDescription>
+              El host te sacó de esta sala. Si fue un error, pídele que cree otra o que te pase
+              el código de una nueva.
+            </CardDescription>
+          </CardHeader>
+        </Card>
+      </main>
+    );
+  }
+
   if (!me) {
     const open = room.phase === "nominating";
     return (
@@ -108,15 +123,13 @@ export default async function SalaPage({ params }: { params: Promise<{ code: str
           {room.phase === "nominating" && <RoomCode code={room.code} />}
         </div>
 
-        <div className="text-muted-foreground flex flex-wrap items-center gap-2 text-sm">
-          <Users className="size-4" />
-          {members.map((member) => (
-            <Badge key={member.id} variant={member.id === me.id ? "default" : "secondary"}>
-              {member.isHost && <Crown className="size-3" />}
-              {member.nickname}
-            </Badge>
-          ))}
-        </div>
+        <MemberList
+          code={room.code}
+          // Mapeo explícito: `Participant` lleva el device_token y no sale al cliente.
+          members={members.map(({ id, nickname, isHost }) => ({ id, nickname, isHost }))}
+          meId={me.id}
+          isHost={me.isHost}
+        />
       </header>
 
       <PhaseView state={state} />

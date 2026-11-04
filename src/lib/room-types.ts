@@ -21,6 +21,23 @@ export type MovieView = {
   addedByNickname: string | null;
 };
 
+/**
+ * Un participante tal como lo ve el cliente. Nunca `Participant` entero: lleva
+ * el `device_token`, que es la identidad de la cookie y permitiría suplantarlo.
+ */
+export type MemberView = {
+  id: string;
+  nickname: string;
+  isHost: boolean;
+};
+
+/**
+ * Cuántos versus de la ronda abierta ya votó cada uno. Es solo un recuento: no
+ * dice qué votó ni en qué cruce, así que no rompe el secreto del voto
+ * (invariante 3) y deja ver a quién se está esperando.
+ */
+export type VoterProgress = MemberView & { cast: number };
+
 export type MatchView = {
   id: string;
   round: number;

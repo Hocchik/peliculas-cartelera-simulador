@@ -87,6 +87,12 @@ export const participants = pgTable(
      * su unicidad es por sala y no global.
      */
     deviceToken: text("device_token").notNull(),
+    /**
+     * Si el host lo sacó de la sala. La fila se conserva a propósito: el índice
+     * (room_id, device_token) impide que ese navegador vuelva a entrar, y sus
+     * votos de cruces ya cerrados siguen cuadrando con el ganador grabado.
+     */
+    kickedAt: timestamp("kicked_at", { withTimezone: true }),
     lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull().defaultNow(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },

@@ -1,6 +1,6 @@
 "use server";
 
-import { and, count, eq, gt, lte, sql } from "drizzle-orm";
+import { and, count, eq, gt, inArray, isNull, lte, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
@@ -25,8 +25,10 @@ import { readDeviceToken } from "@/lib/session";
 import { getMovie } from "@/lib/tmdb";
 import {
   closeRoundIfComplete,
+  currentRound,
   decideMatchByHost,
   generateBracket,
+  loadMatches,
   resolveOpenRound,
   settleTieByCoinflip,
 } from "@/lib/tournament";
@@ -53,6 +55,7 @@ async function requireParticipant(
     .limit(1);
 
   if (!me) return { error: "No estás en esta sala" };
+  if (me.kickedAt) return { error: "El host te sacó de esta sala" };
   return { room, me };
 }
 
@@ -63,11 +66,12 @@ async function requireHost(code: string) {
   return auth;
 }
 
+/** Los que siguen en la sala: de ellos se esperan los votos de cada ronda. */
 async function memberCount(roomId: string): Promise<number> {
   const [{ total }] = await db()
     .select({ total: count() })
     .from(participants)
-    .where(eq(participants.roomId, roomId));
+    .where(and(eq(participants.roomId, roomId), isNull(participants.kickedAt)));
   return total;
 }
 
@@ -369,6 +373,82 @@ export async function resetRoom(code: string): Promise<ActionResult> {
   await db().delete(matches).where(eq(matches.roomId, room.id));
   await db().delete(seedVotes).where(eq(seedVotes.roomId, room.id));
   await db().update(rooms).set({ phase: "nominating" }).where(eq(rooms.id, room.id));
+
+  revalidatePath(`/sala/${room.code}`);
+  return { ok: true };
+}
+
+const kickSchema = z.object({
+  code: z.string().min(1),
+  participantId: z.string().uuid(),
+});
+
+/**
+ * El host saca a alguien de la sala: la defensa contra las cuentas duplicadas
+ * (otro navegador = otra cookie = otro "participante"). La fila no se borra,
+ * se marca: así ese navegador no puede volver a entrar, y los votos que ya
+ * decidieron cruces se quedan, para que el marcador siga cuadrando.
+ *
+ * Lo que se anula es lo que todavía no decidió nada: sus votos de la ronda
+ * abierta y, si la siembra no se cerró, sus aprobaciones.
+ */
+export async function kickParticipant(input: {
+  code: string;
+  participantId: string;
+}): Promise<ActionResult> {
+  const parsed = kickSchema.safeParse(input);
+  if (!parsed.success) return { ok: false, error: "Datos inválidos" };
+
+  const auth = await requireHost(parsed.data.code);
+  if ("error" in auth) return { ok: false, error: auth.error };
+  const { room } = auth;
+
+  const [target] = await db()
+    .select()
+    .from(participants)
+    .where(and(eq(participants.id, parsed.data.participantId), eq(participants.roomId, room.id)))
+    .limit(1);
+
+  if (!target) return { ok: false, error: "Esa persona no está en la sala" };
+  if (target.isHost) return { ok: false, error: "El host no se puede sacar a sí mismo" };
+  if (target.kickedAt) return { ok: true };
+
+  await db()
+    .update(participants)
+    .set({ kickedAt: new Date() })
+    .where(and(eq(participants.id, target.id), isNull(participants.kickedAt)));
+
+  await db()
+    .delete(votes)
+    .where(
+      and(
+        eq(votes.participantId, target.id),
+        inArray(
+          votes.matchId,
+          db()
+            .select({ id: matches.id })
+            .from(matches)
+            .where(and(eq(matches.roomId, room.id), eq(matches.status, "open"))),
+        ),
+      ),
+    );
+
+  if (room.phase === "nominating" || room.phase === "seeding") {
+    await db()
+      .delete(seedVotes)
+      .where(and(eq(seedVotes.roomId, room.id), eq(seedVotes.participantId, target.id)));
+  }
+
+  // Si era a quien se esperaba, ahora ya votaron todos: la ronda se cierra sola.
+  if (room.phase === "bracket") {
+    const [open] = currentRound(await loadMatches(room.id));
+    if (open) {
+      const closed = await closeRoundIfComplete(room, await memberCount(room.id), open.round);
+      if (closed?.finished) {
+        await db().update(rooms).set({ phase: "finished" }).where(eq(rooms.id, room.id));
+      }
+    }
+  }
 
   revalidatePath(`/sala/${room.code}`);
   return { ok: true };

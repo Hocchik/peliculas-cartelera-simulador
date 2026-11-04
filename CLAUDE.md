@@ -44,6 +44,8 @@ El **host** (quien creó la sala) es el único que avanza de fase y el único qu
 | Empates | **Los decide el host** desde el versus: elige él o tira la moneda (`coinflip`, sale de `tiebreak_seed`). Nunca se resuelven solos. |
 | Poder del host | Puede hacer pasar a la que perdió la votación, en la ronda en curso. |
 | Cambiar el voto | Se puede, mientras el cruce siga abierto. Sigue siendo un solo voto por persona. |
+| Cuentas duplicadas | El host **expulsa** (`kickParticipant`): la fila queda marcada y ese navegador no vuelve a entrar. Descartado: huella del navegador e IP (amigos en el mismo wifi comparten IP; la huella cambia por navegador). |
+| Quién falta votar | **Lo ven todos**: solo cuántos versus votó cada uno, nunca qué. |
 | Resultado | El podio completo arma la cartelera, no solo la campeona. |
 | Cupo de nominaciones | **4 por invitado**; el host no tiene tope, porque rellena y modera. |
 | Autoría de nominaciones | Se guarda, pero **solo la ve el host**, para su filtro previo. |
@@ -116,8 +118,8 @@ src/
     phases/                      # una por room.phase; page.tsx solo despacha
     movie/                       # MovieSearch, PosterImage, RemoveMovieButton
     seeding/                     # ApprovalCard
-    bracket/                     # BracketGrid, VoteCard
-    room/                        # CreateRoomForm, JoinRoomForm, RoomCode, LiveUpdates, HostButton
+    bracket/                     # BracketGrid, VoteList/VoteCard, RoundStatus, PhaseTabs, CoinflipReveal
+    room/                        # CreateRoomForm, JoinRoomForm, RoomCode, LiveUpdates, HostButton, MemberList
     ui/                          # shadcn
   db/
     schema.ts  index.ts  migrations/
@@ -146,7 +148,7 @@ Si algún día se quieren salas recurrentes, esa tabla se reintroduce y todo lo 
 | Tabla | Campos |
 |---|---|
 | `rooms` | id, code (unique), name, phase, draw_seed int, tiebreak_seed int, settings jsonb, created_at |
-| `participants` | id, room_id, nickname, avatar_seed, is_host, device_token, last_seen_at |
+| `participants` | id, room_id, nickname, avatar_seed, is_host, device_token, kicked_at (nullable), last_seen_at |
 | `movies` | id, room_id, tmdb_id, title, original_title, year, poster_path, runtime, overview, vote_average, added_by, created_at |
 | `seed_votes` | id, room_id, participant_id, movie_id (aprobación) |
 | `matches` | id, room_id, round, slot, movie_a_id, movie_b_id, winner_id, decided_by, status |
@@ -189,6 +191,8 @@ UNIQUE (screenings.room_id, position)
    mientras el cruce siga `open`: el `setWhere` del upsert lo vuelve a comprobar.
 3. **Los votos son secretos** hasta que el match cierra. La query que alimenta la UI de
    votación *no debe* devolver el conteo parcial ni quién votó qué. Evita el efecto arrastre.
+   Sí se publica **cuántos** versus votó cada persona (`state.voters`): dice a quién se espera,
+   no qué eligió.
 4. **`movies.added_by` solo se expone al host.** El serializer de la lista de nominaciones
    omite el campo para todos los demás participantes. Es una regla de servidor, no de UI: no
    basta con ocultarlo en el render.
@@ -197,8 +201,10 @@ UNIQUE (screenings.room_id, position)
    animación del cliente **muestra** un resultado ya decidido; nunca lo genera. Igual la
    moneda: `coinflip()` mezcla `rooms.tiebreak_seed` con el id del cruce, y `CoinflipReveal`
    solo anima hacia el lado que ya quedó grabado.
-6. **Solo el host cambia `room.phase`** y solo el host modera. Verificar `is_host` en el
-   servidor en cada transición y en cada borrado ajeno.
+6. **Solo el host cambia `room.phase`** y solo el host modera (incluye expulsar). Verificar
+   `is_host` en el servidor en cada transición, en cada borrado ajeno y en cada expulsión.
+10. **`Participant` nunca sale al cliente entero**: lleva el `device_token`, que es la identidad
+    de la cookie. A los componentes de cliente se les pasa `MemberView` (id, apodo, is_host).
 7. **`src/lib/bracket.ts` es puro** (sin I/O, sin `Date.now()`, sin `Math.random()`): recibe
    estado y devuelve estado. Es lo único con tests obligatorios.
 8. **`TMDB_API_KEY` nunca llega al cliente.** Toda llamada pasa por `/api/tmdb/*`.
@@ -258,6 +264,15 @@ la ronda en curso, incluso haciendo pasar a la que perdió la votación. Queda g
 Solo alcanza a la ronda en juego — una vez armada la siguiente, los ganadores ya se
 propagaron y cambiarlos dejaría el cuadro inconsistente.
 
+**Expulsar.** El host saca a alguien desde la lista de la sala (✕ junto al apodo). No se borra
+la fila: se marca `kicked_at`, y el índice `(room_id, device_token)` impide que ese navegador
+vuelva a entrar. Se anulan sus votos de la ronda abierta (y sus aprobaciones si la siembra no
+cerró); los de cruces ya decididos se quedan para que el marcador cuadre. Deja de contar para
+el cierre automático, así que sacar a quien se esperaba cierra la ronda. Como nadie entra
+después de nominar, limpiar la lista antes de cerrar nominaciones deja la sala sellada. Un
+mismo amigo con otro navegador sí puede volver a entrar mientras se nomina: es el límite
+conocido, y por eso la lista es visible para todos.
+
 **Resultado.** No hay una sola ganadora: campeona, subcampeona y las dos semifinalistas pasan a
 `screenings` como las próximas cuatro noches, en ese orden. El host puede sumar **2 más** con
 `setExtraPicks`, que se guardan en las posiciones 5 y 6 de la misma tabla.
@@ -281,10 +296,15 @@ para que los demás no se queden mirando algo que ya no existe.
 - **El cuadro va siempre en columnas**, ronda por ronda en horizontal: es como se lee un cuadro
   de Mundial y lo único que deja ver de un vistazo quién se cruza con quién. Apilarlo en
   vertical se probó y se lee peor. Cuando no entra, se recorre de lado.
-- **En escritorio las llaves van a dos columnas** desde `xl`: los versus en 24 rem a la
-  izquierda y el cuadro a la derecha, pegado con `sticky`. Cuatro rondas piden unos 870 px, por
-  eso esa fase usa `max-w-[96rem]` y el resto `max-w-4xl`. Por debajo de `xl` se apilan y el
-  cuadro queda abajo, a lo ancho.
+- **En las llaves votar manda; el cuadro es contexto.** Cada versus es una fila de ~68 px
+  (`VoteCard`), no dos pósters grandes: con pósters, 8 versus eran ~2.500 px de scroll.
+  Arriba va `RoundStatus` (tu avance, el del grupo y quién falta).
+  - Por debajo de `xl`: pestañas **Versus | Cuadro** (`PhaseTabs`).
+  - Desde `xl`: versus con el ancho libre a la izquierda y cuadro `compact` (~650 px) a la
+    derecha, `sticky`. Esa fase usa `max-w-[96rem]`; el resto, `max-w-4xl`.
+  - La lista pasa a 2 columnas por **container query** (`@xl`), no por breakpoint: el ancho
+    que le queda depende de si el cuadro está al lado.
+  - El "Pasa:" del host en cruces abiertos va detrás de "Decidir a mano"; en empates, siempre.
 - Mutaciones vía **Server Actions**; los Route Handlers quedan para el proxy de TMDB.
 - Toda la copy de la interfaz en **español**, tono informal ("Tu voto", "Faltan 3 por votar").
 - **Títulos bilingües.** Buscar en TMDB con `language=es-MX` y guardar `title` (español) y
@@ -314,7 +334,8 @@ sorteo animado, bracket con votación en vivo, podio. *Con esto ya resuelve el p
 
 **El flujo completo funciona**: nominar → sembrar → sortear → votar los versus → cartelera.
 
-- Neon conectado, migraciones `0000` y `0001` aplicadas.
+- Neon conectado, migraciones `0000` y `0001` aplicadas. **`0003` (`kicked_at`) pendiente de
+  `npm run db:migrate`** antes de desplegar: sin ella, la sala falla al leer participantes.
 - TMDB conectado con el token v4 (`Interestelar` / `Interstellar`: el par bilingüe que
   necesita la UI).
 - Actualización en vivo por latido; tope de 4 nominaciones por invitado, host sin tope.
