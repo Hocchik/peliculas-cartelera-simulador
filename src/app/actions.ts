@@ -103,10 +103,27 @@ export async function joinRoom(_prev: FormState, formData: FormData): Promise<Fo
     .where(and(eq(participants.roomId, room.id), eq(participants.deviceToken, deviceToken)))
     .limit(1);
 
-  // La fila del expulsado se conserva justamente para esto: ese navegador no
-  // vuelve a entrar, ni con otro apodo.
   if (existing?.kickedAt) {
-    return { error: "El host te sacó de esta sala" };
+    // Bloqueado: la fila se conserva justamente para cerrarle la puerta a ESTE
+    // navegador, con cualquier apodo.
+    if (existing.banned) {
+      return { error: "El host bloqueó este navegador en esta sala" };
+    }
+
+    // Sacado sin bloquear: vuelve con la misma fila (en cualquier fase, porque
+    // ya era de la sala), y puede cambiarse el apodo de paso.
+    try {
+      await db()
+        .update(participants)
+        .set({ kickedAt: null, nickname: parsed.data.nickname })
+        .where(eq(participants.id, existing.id));
+    } catch (error) {
+      if (isUniqueViolation(error, "participants_room_nickname_unq")) {
+        return { error: `Ya hay alguien con el apodo "${parsed.data.nickname}" en la sala` };
+      }
+      throw error;
+    }
+    redirect(`/sala/${room.code}`);
   }
 
   if (!existing) {

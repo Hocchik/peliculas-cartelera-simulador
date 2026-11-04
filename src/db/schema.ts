@@ -88,11 +88,16 @@ export const participants = pgTable(
      */
     deviceToken: text("device_token").notNull(),
     /**
-     * Si el host lo sacó de la sala. La fila se conserva a propósito: el índice
-     * (room_id, device_token) impide que ese navegador vuelva a entrar, y sus
-     * votos de cruces ya cerrados siguen cuadrando con el ganador grabado.
+     * Si el host lo sacó de la sala. La fila se conserva a propósito: sus votos
+     * de cruces ya cerrados siguen cuadrando con el ganador grabado, y si vuelve
+     * a entrar se reactiva la misma fila en vez de crear otra.
      */
     kickedAt: timestamp("kicked_at", { withTimezone: true }),
+    /**
+     * Sacado Y bloqueado: ese navegador no vuelve a entrar. Es para cuentas que
+     * no son del grupo; a un amigo se lo saca sin bloquear y puede volver.
+     */
+    banned: boolean("banned").notNull().default(false),
     lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull().defaultNow(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },

@@ -7,10 +7,9 @@ import { cn } from "@/lib/utils";
 type Tab = "votes" | "bracket";
 
 /**
- * Versus y cuadro. Hasta `xl` van en pestañas: votar es lo urgente y el cuadro,
- * apilado debajo, empujaba los versus o quedaba fuera de la vista. Desde `xl`
- * caben los dos: los versus se quedan con el ancho libre y el cuadro, compacto,
- * con lo justo a la derecha.
+ * Versus y cuadro en pestañas, para celular y tablet: votar es lo urgente y el
+ * cuadro, apilado debajo, empujaba los versus o quedaba fuera de la vista. En
+ * escritorio no se usa: ahí el cuadro va en un modal (`BracketDialog`).
  *
  * Los dos paneles siempre están montados (solo se ocultan), así que cambiar de
  * pestaña no pierde el estado de los versus ni el scroll lateral del cuadro.
@@ -33,8 +32,8 @@ export function PhaseTabs({
   ];
 
   return (
-    <div className="space-y-4 xl:grid xl:grid-cols-[minmax(0,1fr)_auto] xl:items-start xl:gap-8 xl:space-y-0">
-      <div role="tablist" className="bg-muted grid grid-cols-2 gap-1 rounded-lg p-1 xl:hidden">
+    <div className="space-y-4">
+      <div role="tablist" className="bg-muted grid grid-cols-2 gap-1 rounded-lg p-1">
         {tabs.map(({ id, label, badge }) => (
           <button
             key={id}
@@ -65,29 +64,19 @@ export function PhaseTabs({
         id="panel-votes"
         role="tabpanel"
         aria-labelledby="tab-votes"
-        className={cn(tab !== "votes" && "hidden", "xl:block")}
+        className={cn(tab !== "votes" && "hidden")}
       >
         {votes}
       </section>
 
-      {/*
-        `max-h` + `overflow-y-auto` solo entran en acción si el cuadro no cabe a
-        lo alto; mientras quepa no aparece ninguna barra.
-      */}
-      <aside
+      <section
         id="panel-bracket"
         role="tabpanel"
         aria-labelledby="tab-bracket"
-        className={cn(
-          tab !== "bracket" && "hidden",
-          "xl:sticky xl:top-6 xl:block xl:max-h-[calc(100svh-3rem)] xl:overflow-y-auto",
-        )}
+        className={cn(tab !== "bracket" && "hidden")}
       >
-        <h2 className="text-muted-foreground mb-2 hidden text-xs font-semibold tracking-wide uppercase xl:block">
-          Cómo va el cuadro
-        </h2>
         {bracket}
-      </aside>
+      </section>
     </div>
   );
 }

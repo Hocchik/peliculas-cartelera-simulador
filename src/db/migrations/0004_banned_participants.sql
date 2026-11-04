@@ -1,0 +1,1 @@
+ALTER TABLE "participants" ADD COLUMN "banned" boolean DEFAULT false NOT NULL;

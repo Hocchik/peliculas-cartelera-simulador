@@ -65,17 +65,28 @@ export default async function SalaPage({ params }: { params: Promise<{ code: str
 
   const { room, me, members, version } = state;
 
-  if (state.kicked) {
+  if (state.removed) {
+    const banned = state.removed === "banned";
     return (
       <main className="mx-auto flex min-h-svh w-full max-w-md flex-col justify-center px-4 py-10">
         <Card>
           <CardHeader>
             <CardTitle>{room.name}</CardTitle>
             <CardDescription>
-              El host te sacó de esta sala. Si fue un error, pídele que cree otra o que te pase
-              el código de una nueva.
+              {banned
+                ? "El host bloqueó este navegador en esta sala, así que desde aquí no puedes volver a entrar."
+                : "El host te sacó de la sala. Si fue un error, puedes volver a entrar."}
             </CardDescription>
           </CardHeader>
+          {!banned && (
+            <CardContent>
+              <JoinRoomForm
+                code={room.code}
+                defaultNickname={state.removedNickname ?? undefined}
+                submitLabel="Volver a entrar"
+              />
+            </CardContent>
+          )}
         </Card>
       </main>
     );

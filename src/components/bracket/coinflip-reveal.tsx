@@ -7,10 +7,12 @@ import { PosterImage } from "@/components/movie/poster-image";
 import { Button } from "@/components/ui/button";
 import type { MatchView, MovieView } from "@/lib/room-types";
 
-/** Vueltas completas antes de caer. Si gana la B se suma media vuelta. */
-const SPINS = 6;
+/** Vueltas completas en el aire. Si gana la B (sello) se suma media vuelta. */
+const SPINS = 7;
 /** Cuánto queda a la vista el resultado antes de cerrarse solo. */
-const LINGER_MS = 4000;
+const LINGER_MS = 4500;
+/** Discos del canto, en px desde el centro. Las caras van en ±5. */
+const EDGE_LAYERS = [-4, -3, -2, -1, 0, 1, 2, 3, 4];
 
 /**
  * Muestra a todos la moneda de un desempate. No decide nada: el cruce llega con
@@ -85,34 +87,65 @@ function CoinToss({
       onClick={onClose}
     >
       <div
-        className="bg-card w-full max-w-sm space-y-4 rounded-xl border p-6 text-center shadow-lg"
+        className="bg-card w-full max-w-sm space-y-3 rounded-xl border p-6 text-center shadow-lg"
         onClick={(event) => event.stopPropagation()}
       >
         <p
           id="coinflip-title"
           className="text-primary flex items-center justify-center gap-2 text-sm font-semibold"
         >
-          <Coins className="size-4" /> Empate: moneda al aire
+          <Coins className="size-4" /> Empate: ¿cara o sello?
         </p>
 
-        <p className="text-muted-foreground text-xs">
-          {movieA.title} <span className="font-semibold">vs</span> {movieB.title}
-        </p>
+        {/* Antes de lanzarla queda claro qué lado es cuál. */}
+        <div className="grid grid-cols-2 gap-3 text-xs">
+          {[
+            { side: "Cara", movie: movieA },
+            { side: "Sello", movie: movieB },
+          ].map(({ side, movie }) => (
+            <p key={side} className="min-w-0">
+              <span className="text-muted-foreground block text-[10px] font-semibold tracking-wide uppercase">
+                {side}
+              </span>
+              <span className="line-clamp-2 font-medium">{movie.title}</span>
+            </p>
+          ))}
+        </div>
 
-        <div className="grid h-52 place-items-center [perspective:800px]">
-          <div
-            className="coin-toss relative size-32"
-            style={coinStyle}
-            onAnimationEnd={() => setLanded(true)}
-          >
-            <CoinFace movie={movieA} />
-            <CoinFace movie={movieB} back />
+        <div className="coin-scene" data-landed={landed || undefined}>
+          <div className="coin-table">
+            <div className="coin-shadow" />
+            <div
+              className="coin-lift"
+              onAnimationEnd={(event) => {
+                // `animationend` sube desde el giro de adentro: solo cuenta el
+                // de la caída, que es el que termina con la moneda en el piso.
+                if (event.target === event.currentTarget) setLanded(true);
+              }}
+            >
+              <div className="coin" style={coinStyle}>
+                <CoinFace movie={movieA} />
+                {EDGE_LAYERS.map((z) => (
+                  <span key={z} className="coin-edge" style={{ transform: `translateZ(${z}px)` }} />
+                ))}
+                <CoinFace movie={movieB} back />
+              </div>
+            </div>
           </div>
         </div>
 
-        <p aria-live="polite" className="min-h-7 text-lg font-bold">
-          {landed ? `¡Pasa ${winner.title}!` : "…"}
-        </p>
+        <div aria-live="polite" className="min-h-14">
+          {landed ? (
+            <div className="animate-in fade-in zoom-in-75 duration-500">
+              <p className="text-muted-foreground text-[11px] font-semibold tracking-wide uppercase">
+                Salió {winnerIsA ? "cara" : "sello"}
+              </p>
+              <p className="text-lg font-bold">¡Pasa {winner.title}!</p>
+            </div>
+          ) : (
+            <p className="text-muted-foreground pt-3 text-sm">La moneda está en el aire…</p>
+          )}
+        </div>
 
         <Button variant="ghost" size="sm" onClick={onClose}>
           Cerrar
@@ -124,12 +157,8 @@ function CoinToss({
 
 function CoinFace({ movie, back = false }: { movie: MovieView; back?: boolean }) {
   return (
-    <div
-      className={`coin-face ring-primary bg-muted absolute inset-0 overflow-hidden rounded-full ring-4 ${
-        back ? "coin-back" : ""
-      }`}
-    >
-      <PosterImage path={movie.posterPath} alt={movie.title} className="size-full" />
+    <div className="coin-face bg-muted" data-back={back || undefined}>
+      <PosterImage path={movie.posterPath} alt="" className="size-full" />
     </div>
   );
 }

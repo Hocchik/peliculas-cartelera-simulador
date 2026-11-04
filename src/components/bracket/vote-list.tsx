@@ -3,28 +3,29 @@
 import { useState } from "react";
 import { Crown } from "lucide-react";
 
-import { VoteCard } from "@/components/bracket/vote-card";
+import { VoteCard, type VoteCardVariant } from "@/components/bracket/vote-card";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import type { MatchView } from "@/lib/room-types";
 
 /**
- * Los versus de la ronda, empates primero. Pasa a dos columnas cuando el
- * contenedor (no la pantalla) tiene sitio: en escritorio comparte el ancho con
- * el cuadro, así que la pantalla sola no dice cuánto espacio hay.
+ * Los versus de la ronda, empates primero, en grilla de cartelera.
  *
  * El poder del host de hacer pasar a cualquiera va detrás de "Decidir a mano":
- * se usa poco y, siempre a la vista, duplicaba la altura de cada versus.
+ * se usa poco y, siempre a la vista, agrandaba cada versus.
  */
 export function VoteList({
   code,
   ties,
   open,
   isHost,
+  variant,
 }: {
   code: string;
   ties: MatchView[];
   open: MatchView[];
   isHost: boolean;
+  variant: VoteCardVariant;
 }) {
   const [hostMode, setHostMode] = useState(false);
   const unvoted = open.filter((match) => match.myChoice === null).length;
@@ -52,9 +53,16 @@ export function VoteList({
         )}
       </div>
 
-      {/* `grid-cols-1` es `minmax(0, 1fr)`: sin eso, un título largo con
-          `truncate` estira la fila más allá de la pantalla. */}
-      <ul className="grid grid-cols-1 gap-2 @xl:grid-cols-2">
+      {/* Columnas según el ancho del contenedor, no de la pantalla. Las de
+          `grid-cols-*` son `minmax(0, 1fr)`: un título largo no las estira. */}
+      <ul
+        className={cn(
+          "grid gap-2",
+          variant === "rows"
+            ? "grid-cols-1 @xl:grid-cols-2"
+            : "grid-cols-2 gap-3 @3xl:grid-cols-3 @5xl:grid-cols-4",
+        )}
+      >
         {[...ties, ...open].map((match) => (
           <VoteCard
             key={match.id}
@@ -62,6 +70,7 @@ export function VoteList({
             match={match}
             isHost={isHost}
             hostMode={hostMode}
+            variant={variant}
           />
         ))}
       </ul>

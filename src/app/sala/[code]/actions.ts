@@ -55,7 +55,11 @@ async function requireParticipant(
     .limit(1);
 
   if (!me) return { error: "No estás en esta sala" };
-  if (me.kickedAt) return { error: "El host te sacó de esta sala" };
+  if (me.kickedAt) {
+    return {
+      error: me.banned ? "El host te bloqueó en esta sala" : "El host te sacó de la sala",
+    };
+  }
   return { room, me };
 }
 
@@ -381,20 +385,25 @@ export async function resetRoom(code: string): Promise<ActionResult> {
 const kickSchema = z.object({
   code: z.string().min(1),
   participantId: z.string().uuid(),
+  ban: z.boolean(),
 });
 
 /**
- * El host saca a alguien de la sala: la defensa contra las cuentas duplicadas
- * (otro navegador = otra cookie = otro "participante"). La fila no se borra,
- * se marca: así ese navegador no puede volver a entrar, y los votos que ya
- * decidieron cruces se quedan, para que el marcador siga cuadrando.
+ * El host saca a alguien de la sala. Dos grados:
+ *  - `ban: false` — "Sacar": deja de contar, pero puede volver a entrar con el
+ *    código (un amigo cuyo celular quedó colgado, o que entró dos veces).
+ *  - `ban: true` — "Bloquear": además, ese navegador no vuelve a entrar. Es
+ *    para la cuenta fantasma de alguien que se abrió otro navegador.
  *
- * Lo que se anula es lo que todavía no decidió nada: sus votos de la ronda
- * abierta y, si la siembra no se cerró, sus aprobaciones.
+ * La fila no se borra, se marca: los votos que ya decidieron cruces se quedan,
+ * para que el marcador siga cuadrando. Lo que se anula es lo que todavía no
+ * decidió nada: sus votos de la ronda abierta y, si la siembra no se cerró,
+ * sus aprobaciones.
  */
 export async function kickParticipant(input: {
   code: string;
   participantId: string;
+  ban: boolean;
 }): Promise<ActionResult> {
   const parsed = kickSchema.safeParse(input);
   if (!parsed.success) return { ok: false, error: "Datos inválidos" };
@@ -411,11 +420,19 @@ export async function kickParticipant(input: {
 
   if (!target) return { ok: false, error: "Esa persona no está en la sala" };
   if (target.isHost) return { ok: false, error: "El host no se puede sacar a sí mismo" };
-  if (target.kickedAt) return { ok: true };
+
+  // Bloquear a alguien ya sacado sí cambia algo: le cierra la puerta.
+  if (target.kickedAt) {
+    if (parsed.data.ban && !target.banned) {
+      await db().update(participants).set({ banned: true }).where(eq(participants.id, target.id));
+      revalidatePath(`/sala/${room.code}`);
+    }
+    return { ok: true };
+  }
 
   await db()
     .update(participants)
-    .set({ kickedAt: new Date() })
+    .set({ kickedAt: new Date(), banned: parsed.data.ban })
     .where(and(eq(participants.id, target.id), isNull(participants.kickedAt)));
 
   await db()
