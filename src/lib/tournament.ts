@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, asc, count, eq, inArray } from "drizzle-orm";
+import { and, asc, count, eq, inArray, ne } from "drizzle-orm";
 
 import {
   db,
@@ -15,10 +15,12 @@ import {
 import {
   bracketSize,
   buildNextRound,
+  coinflip,
   drawSlots,
   initialMatches,
   resolveMatch,
   totalRounds,
+  type MatchOutcome,
   type Nominee,
   type Tally,
 } from "@/lib/bracket";
@@ -122,15 +124,27 @@ export async function pendingVotes(
 
 /**
  * Cierra los cruces abiertos de la ronda. Los que quedan empatados NO se
- * resuelven al azar: pasan a `tiebreak` y esperan a que el host decida.
+ * resuelven solos: pasan a `tiebreak` y esperan al host (que elige o tira la
+ * moneda).
+ *
+ * `expectedRound` es la ronda que quien llama cree estar cerrando. Dos votos
+ * simultáneos pueden llegar aquí a la vez; si el otro ya cerró esta ronda y
+ * abrió la siguiente, cerrar "la ronda en curso" sin mirar cerraría la nueva
+ * con cero votos y la dejaría entera en empate. Por eso, si no coincide, no se
+ * resuelve nada: solo se termina de avanzar, que es idempotente.
  */
-export async function resolveOpenRound(room: Room): Promise<{
+export async function resolveOpenRound(
+  room: Room,
+  expectedRound?: number,
+): Promise<{
   finished: boolean;
   ties: number;
 }> {
   const all = await loadMatches(room.id);
   const round = currentRound(all);
-  if (round.length === 0) return { finished: true, ties: 0 };
+  if (round.length === 0 || (expectedRound !== undefined && round[0].round !== expectedRound)) {
+    return { ...(await advanceIfComplete(room)), ties: 0 };
+  }
 
   const open = round.filter((match) => match.status === "open");
   const tallies = await talliesFor(open.map((match) => match.id));
@@ -138,14 +152,16 @@ export async function resolveOpenRound(room: Room): Promise<{
   let ties = 0;
   for (const match of open) {
     const outcome = resolveMatch(match, tallies.get(match.id) ?? {});
+    // `status = 'open'` en el WHERE: si otra petición ya lo cerró, gana la primera.
+    const stillOpen = and(eq(matches.id, match.id), eq(matches.status, "open"));
     if (outcome) {
       await db()
         .update(matches)
         .set({ winnerId: outcome.winnerId, decidedBy: outcome.decidedBy, status: "decided" })
-        .where(eq(matches.id, match.id));
+        .where(stillOpen);
     } else {
       ties++;
-      await db().update(matches).set({ status: "tiebreak" }).where(eq(matches.id, match.id));
+      await db().update(matches).set({ status: "tiebreak" }).where(stillOpen);
     }
   }
 
@@ -163,10 +179,38 @@ export async function decideMatchByHost(
   matchId: string,
   winnerId: string,
 ): Promise<{ finished: boolean }> {
+  return settleMatch(room, matchId, { winnerId, decidedBy: "host" });
+}
+
+/**
+ * El host tira la moneda en un empate. El resultado no lo genera el cliente: se
+ * deriva de `tiebreak_seed` y del cruce, así que es reproducible (invariante 5)
+ * y la animación solo muestra lo que ya quedó grabado.
+ */
+export async function settleTieByCoinflip(
+  room: Room,
+  match: Pick<Match, "id" | "movieAId" | "movieBId">,
+): Promise<{ finished: boolean }> {
+  if (!match.movieAId || !match.movieBId) {
+    throw new Error("Solo se tira la moneda en un cruce con dos películas");
+  }
+  const outcome = coinflip(
+    { key: match.id, movieAId: match.movieAId, movieBId: match.movieBId },
+    room.tiebreakSeed,
+  );
+  return settleMatch(room, match.id, outcome);
+}
+
+async function settleMatch(
+  room: Room,
+  matchId: string,
+  outcome: MatchOutcome,
+): Promise<{ finished: boolean }> {
+  // Un doble toque del host no pisa una decisión ya grabada.
   await db()
     .update(matches)
-    .set({ winnerId, decidedBy: "host", status: "decided" })
-    .where(eq(matches.id, matchId));
+    .set({ winnerId: outcome.winnerId, decidedBy: outcome.decidedBy, status: "decided" })
+    .where(and(eq(matches.id, matchId), ne(matches.status, "decided")));
 
   return advanceIfComplete(room);
 }
@@ -178,12 +222,16 @@ export async function decideMatchByHost(
  */
 async function advanceIfComplete(room: Room): Promise<{ finished: boolean }> {
   const all = await loadMatches(room.id);
-  if (all.some((match) => match.status !== "decided")) return { finished: false };
+  if (all.length === 0 || all.some((match) => match.status !== "decided")) {
+    return { finished: false };
+  }
 
   const lastRound = Math.max(...all.map((match) => match.round));
   const next = buildNextRound(all.filter((match) => match.round === lastRound));
 
   if (next.length > 0) {
+    // Dos peticiones pueden llegar aquí a la vez con la misma ronda completa.
+    // El índice único (room_id, round, slot) hace que solo una la inserte.
     await db()
       .insert(matches)
       .values(
@@ -195,7 +243,8 @@ async function advanceIfComplete(room: Room): Promise<{ finished: boolean }> {
           movieBId: match.movieBId,
           status: "open" as const,
         })),
-      );
+      )
+      .onConflictDoNothing();
     return { finished: false };
   }
 
@@ -232,19 +281,26 @@ async function buildScreenings(room: Room, all: Match[]): Promise<void> {
     if (loser) podium.push(loser);
   }
 
+  // La comprobación de arriba no es atómica: si dos cierres llegan juntos, el
+  // índice único (room_id, position) deja pasar solo al primero.
   await db()
     .insert(screenings)
-    .values(podium.map((movieId, index) => ({ roomId: room.id, movieId, position: index + 1 })));
+    .values(podium.map((movieId, index) => ({ roomId: room.id, movieId, position: index + 1 })))
+    .onConflictDoNothing();
 }
 
-/** Tras cada voto: si ya votaron todos, la ronda se cierra sola. */
+/**
+ * Tras cada voto: si ya votaron todos, la ronda se cierra sola. `round` es la
+ * del cruce votado; ver `resolveOpenRound` para por qué importa.
+ */
 export async function closeRoundIfComplete(
   room: Room,
   memberCount: number,
+  round: number,
 ): Promise<{ finished: boolean; ties: number } | null> {
   const { cast, expected } = await pendingVotes(room, memberCount);
   if (expected === 0 || cast < expected) return null;
-  return resolveOpenRound(room);
+  return resolveOpenRound(room, round);
 }
 
 /** Cuántas rondas tendrá el cuadro de esta sala. */

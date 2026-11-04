@@ -11,7 +11,13 @@ import {
   votes,
   type Room,
 } from "@/db";
-import { decideMatchByHost, loadMatches, resolveOpenRound } from "@/lib/tournament";
+import { coinflip } from "@/lib/bracket";
+import {
+  decideMatchByHost,
+  loadMatches,
+  resolveOpenRound,
+  settleTieByCoinflip,
+} from "@/lib/tournament";
 
 /** Empates y poder del host, contra la base real. */
 
@@ -168,5 +174,105 @@ describe("poder del host", () => {
 
     const lineup = await db().select().from(screenings).where(eq(screenings.roomId, room.id));
     expect(lineup).toHaveLength(2);
+  });
+});
+
+describe("moneda", () => {
+  it("desempata con el resultado que dicta tiebreak_seed, y tirarla dos veces no cambia nada", async () => {
+    const { room, hostId, guestId, movieIds, matchId } = await montar();
+
+    await db()
+      .insert(votes)
+      .values([
+        { matchId, participantId: hostId, choiceMovieId: movieIds[0] },
+        { matchId, participantId: guestId, choiceMovieId: movieIds[1] },
+      ]);
+    await resolveOpenRound(room);
+
+    const [tied] = await loadMatches(room.id);
+    const { finished } = await settleTieByCoinflip(room, tied);
+    await settleTieByCoinflip(room, tied);
+    expect(finished).toBe(true);
+
+    const expected = coinflip(
+      { key: matchId, movieAId: movieIds[0], movieBId: movieIds[1] },
+      room.tiebreakSeed,
+    );
+    const [match] = await loadMatches(room.id);
+    expect(match).toMatchObject({
+      status: "decided",
+      decidedBy: "coinflip",
+      winnerId: expected.winnerId,
+    });
+
+    const lineup = await db().select().from(screenings).where(eq(screenings.roomId, room.id));
+    expect(lineup).toHaveLength(2);
+  });
+});
+
+describe("votos simultáneos", () => {
+  /** Semifinales: el cruce de `montar` más otro, y los dos votaron por unanimidad. */
+  async function montarSemis() {
+    const base = await montar();
+    const extra = await db()
+      .insert(movies)
+      .values([
+        { roomId: base.room.id, tmdbId: 95003, title: "Peli C", originalTitle: "Film C", year: 2003 },
+        { roomId: base.room.id, tmdbId: 95004, title: "Peli D", originalTitle: "Film D", year: 2004 },
+      ])
+      .returning();
+    const [semi2] = await db()
+      .insert(matches)
+      .values({
+        roomId: base.room.id,
+        round: 1,
+        slot: 1,
+        movieAId: extra[0].id,
+        movieBId: extra[1].id,
+        status: "open",
+      })
+      .returning();
+
+    await db()
+      .insert(votes)
+      .values([
+        { matchId: base.matchId, participantId: base.hostId, choiceMovieId: base.movieIds[0] },
+        { matchId: base.matchId, participantId: base.guestId, choiceMovieId: base.movieIds[0] },
+        { matchId: semi2.id, participantId: base.hostId, choiceMovieId: extra[1].id },
+        { matchId: semi2.id, participantId: base.guestId, choiceMovieId: extra[1].id },
+      ]);
+
+    return { ...base, finalists: [base.movieIds[0], extra[1].id] };
+  }
+
+  it("tres cierres a la vez arman una sola final, abierta y sin terminar el torneo", async () => {
+    const { room, finalists } = await montarSemis();
+
+    const results = await Promise.all([
+      resolveOpenRound(room, 1),
+      resolveOpenRound(room, 1),
+      resolveOpenRound(room, 1),
+    ]);
+    expect(results.every((result) => !result.finished)).toBe(true);
+
+    const final = (await loadMatches(room.id)).filter((match) => match.round === 2);
+    expect(final).toHaveLength(1);
+    expect(final[0]).toMatchObject({
+      status: "open",
+      movieAId: finalists[0],
+      movieBId: finalists[1],
+    });
+  });
+
+  it("un cierre que llega tarde no toca la ronda que ya se abrió", async () => {
+    const { room } = await montarSemis();
+
+    await resolveOpenRound(room, 1);
+    // El segundo voto simultáneo llega cuando la final ya existe, con 0 votos.
+    const late = await resolveOpenRound(room, 1);
+    expect(late).toEqual({ finished: false, ties: 0 });
+
+    const [final] = (await loadMatches(room.id)).filter((match) => match.round === 2);
+    expect(final.status).toBe("open");
   });
 });

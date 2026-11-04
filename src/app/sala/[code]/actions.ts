@@ -1,6 +1,6 @@
 "use server";
 
-import { and, count, eq, gt, lte } from "drizzle-orm";
+import { and, count, eq, gt, inArray, isNull, lte, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
@@ -25,9 +25,12 @@ import { readDeviceToken } from "@/lib/session";
 import { getMovie } from "@/lib/tmdb";
 import {
   closeRoundIfComplete,
+  currentRound,
   decideMatchByHost,
   generateBracket,
+  loadMatches,
   resolveOpenRound,
+  settleTieByCoinflip,
 } from "@/lib/tournament";
 
 export type ActionResult = { ok: true } | { ok: false; error: string };
@@ -52,6 +55,7 @@ async function requireParticipant(
     .limit(1);
 
   if (!me) return { error: "No estás en esta sala" };
+  if (me.kickedAt) return { error: "El host te sacó de esta sala" };
   return { room, me };
 }
 
@@ -62,11 +66,12 @@ async function requireHost(code: string) {
   return auth;
 }
 
+/** Los que siguen en la sala: de ellos se esperan los votos de cada ronda. */
 async function memberCount(roomId: string): Promise<number> {
   const [{ total }] = await db()
     .select({ total: count() })
     .from(participants)
-    .where(eq(participants.roomId, roomId));
+    .where(and(eq(participants.roomId, roomId), isNull(participants.kickedAt)));
   return total;
 }
 
@@ -324,20 +329,24 @@ export async function castVote(input: {
     return { ok: false, error: "Esa película no juega este cruce" };
   }
 
-  try {
-    await db().insert(votes).values({
+  // Sigue habiendo un solo voto por persona y cruce (índice único): votar otra
+  // vez lo CAMBIA, no suma otro. El cambio solo vale mientras el cruce siga
+  // abierto: si se cerró entre la lectura de arriba y este insert, no se toca,
+  // para que el marcador no contradiga al ganador ya grabado.
+  await db()
+    .insert(votes)
+    .values({
       matchId: match.id,
       participantId: me.id,
       choiceMovieId: parsed.data.choiceMovieId,
+    })
+    .onConflictDoUpdate({
+      target: [votes.matchId, votes.participantId],
+      set: { choiceMovieId: parsed.data.choiceMovieId },
+      setWhere: sql`exists (select 1 from matches where matches.id = ${match.id} and matches.status = 'open')`,
     });
-  } catch (error) {
-    if (isUniqueViolation(error, "votes_match_participant_unq")) {
-      return { ok: false, error: "Ya votaste este cruce" };
-    }
-    throw error;
-  }
 
-  const closed = await closeRoundIfComplete(room, await memberCount(room.id));
+  const closed = await closeRoundIfComplete(room, await memberCount(room.id), match.round);
   if (closed?.finished) {
     await db().update(rooms).set({ phase: "finished" }).where(eq(rooms.id, room.id));
   }
@@ -364,6 +373,82 @@ export async function resetRoom(code: string): Promise<ActionResult> {
   await db().delete(matches).where(eq(matches.roomId, room.id));
   await db().delete(seedVotes).where(eq(seedVotes.roomId, room.id));
   await db().update(rooms).set({ phase: "nominating" }).where(eq(rooms.id, room.id));
+
+  revalidatePath(`/sala/${room.code}`);
+  return { ok: true };
+}
+
+const kickSchema = z.object({
+  code: z.string().min(1),
+  participantId: z.string().uuid(),
+});
+
+/**
+ * El host saca a alguien de la sala: la defensa contra las cuentas duplicadas
+ * (otro navegador = otra cookie = otro "participante"). La fila no se borra,
+ * se marca: así ese navegador no puede volver a entrar, y los votos que ya
+ * decidieron cruces se quedan, para que el marcador siga cuadrando.
+ *
+ * Lo que se anula es lo que todavía no decidió nada: sus votos de la ronda
+ * abierta y, si la siembra no se cerró, sus aprobaciones.
+ */
+export async function kickParticipant(input: {
+  code: string;
+  participantId: string;
+}): Promise<ActionResult> {
+  const parsed = kickSchema.safeParse(input);
+  if (!parsed.success) return { ok: false, error: "Datos inválidos" };
+
+  const auth = await requireHost(parsed.data.code);
+  if ("error" in auth) return { ok: false, error: auth.error };
+  const { room } = auth;
+
+  const [target] = await db()
+    .select()
+    .from(participants)
+    .where(and(eq(participants.id, parsed.data.participantId), eq(participants.roomId, room.id)))
+    .limit(1);
+
+  if (!target) return { ok: false, error: "Esa persona no está en la sala" };
+  if (target.isHost) return { ok: false, error: "El host no se puede sacar a sí mismo" };
+  if (target.kickedAt) return { ok: true };
+
+  await db()
+    .update(participants)
+    .set({ kickedAt: new Date() })
+    .where(and(eq(participants.id, target.id), isNull(participants.kickedAt)));
+
+  await db()
+    .delete(votes)
+    .where(
+      and(
+        eq(votes.participantId, target.id),
+        inArray(
+          votes.matchId,
+          db()
+            .select({ id: matches.id })
+            .from(matches)
+            .where(and(eq(matches.roomId, room.id), eq(matches.status, "open"))),
+        ),
+      ),
+    );
+
+  if (room.phase === "nominating" || room.phase === "seeding") {
+    await db()
+      .delete(seedVotes)
+      .where(and(eq(seedVotes.roomId, room.id), eq(seedVotes.participantId, target.id)));
+  }
+
+  // Si era a quien se esperaba, ahora ya votaron todos: la ronda se cierra sola.
+  if (room.phase === "bracket") {
+    const [open] = currentRound(await loadMatches(room.id));
+    if (open) {
+      const closed = await closeRoundIfComplete(room, await memberCount(room.id), open.round);
+      if (closed?.finished) {
+        await db().update(rooms).set({ phase: "finished" }).where(eq(rooms.id, room.id));
+      }
+    }
+  }
 
   revalidatePath(`/sala/${room.code}`);
   return { ok: true };
@@ -498,8 +583,51 @@ export async function decideMatch(input: {
   return { ok: true };
 }
 
-/** Cierre forzado por el host, con los votos que haya. */
-export async function forceCloseRound(code: string): Promise<ActionResult> {
+/**
+ * El host desempata con una moneda. No sirve para cruces abiertos: la moneda es
+ * para empates, no un atajo para saltarse la votación.
+ */
+export async function flipCoin(input: { code: string; matchId: string }): Promise<ActionResult> {
+  const parsed = z.object({ code: z.string().min(1), matchId: z.string().uuid() }).safeParse(input);
+  if (!parsed.success) return { ok: false, error: "Datos inválidos" };
+
+  const auth = await requireHost(parsed.data.code);
+  if ("error" in auth) return { ok: false, error: auth.error };
+  const { room } = auth;
+
+  if (room.phase !== "bracket") {
+    return { ok: false, error: "No hay versus en juego" };
+  }
+
+  const [match] = await db()
+    .select()
+    .from(matches)
+    .where(and(eq(matches.id, parsed.data.matchId), eq(matches.roomId, room.id)))
+    .limit(1);
+
+  if (!match) return { ok: false, error: "Ese cruce no existe" };
+  if (match.status !== "tiebreak") {
+    return { ok: false, error: "La moneda solo se tira en un empate" };
+  }
+
+  const { finished } = await settleTieByCoinflip(room, match);
+  if (finished) {
+    await db().update(rooms).set({ phase: "finished" }).where(eq(rooms.id, room.id));
+  }
+
+  revalidatePath(`/sala/${room.code}`);
+  return { ok: true };
+}
+
+/**
+ * Cierre forzado por el host, con los votos que haya. `round` va atado desde el
+ * servidor (`.bind`): si mientras el host confirmaba votaron todos y la ronda
+ * avanzó sola, no se cierra la siguiente con cero votos.
+ */
+export async function forceCloseRound(round: number, code: string): Promise<ActionResult> {
+  const parsedRound = z.number().int().positive().safeParse(round);
+  if (!parsedRound.success) return { ok: false, error: "Datos inválidos" };
+
   const auth = await requireHost(code);
   if ("error" in auth) return { ok: false, error: auth.error };
   const { room } = auth;
@@ -508,7 +636,7 @@ export async function forceCloseRound(code: string): Promise<ActionResult> {
     return { ok: false, error: "No hay una ronda abierta" };
   }
 
-  const { finished } = await resolveOpenRound(room);
+  const { finished } = await resolveOpenRound(room, parsedRound.data);
   if (finished) {
     await db().update(rooms).set({ phase: "finished" }).where(eq(rooms.id, room.id));
   }

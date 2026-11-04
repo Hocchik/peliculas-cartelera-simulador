@@ -24,12 +24,14 @@ export async function GET(_request: NextRequest, ctx: { params: Promise<{ code: 
   }
 
   const [me] = await db()
-    .select({ id: participants.id })
+    .select({ id: participants.id, kickedAt: participants.kickedAt })
     .from(participants)
     .where(and(eq(participants.roomId, room.id), eq(participants.deviceToken, deviceToken)))
     .limit(1);
 
-  if (!me) {
+  // Al expulsado también se le contesta 403: `LiveUpdates` refresca una última
+  // vez y la página le muestra que lo sacaron, en vez de dejarlo votando a ciegas.
+  if (!me || me.kickedAt) {
     return Response.json({ error: "No estás en esta sala" }, { status: 403 });
   }
 

@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, asc, count, eq, inArray, max } from "drizzle-orm";
+import { and, asc, count, eq, inArray, isNull, max } from "drizzle-orm";
 
 import {
   db,
@@ -19,13 +19,16 @@ import { normalizeRoomCode } from "@/lib/codes";
 import { nominationLimit, roomVersion } from "@/lib/nominations";
 import { currentRound } from "@/lib/tournament";
 
-import type { MatchView, MovieView } from "@/lib/room-types";
+import type { MatchView, MemberView, MovieView, VoterProgress } from "@/lib/room-types";
 
-export type { MatchView, MovieView };
+export type { MatchView, MemberView, MovieView, VoterProgress };
 
 export type RoomState = {
   room: Room;
   me: Participant | null;
+  /** Quien mira fue expulsado por el host. En ese caso `me` es `null`. */
+  kicked: boolean;
+  /** Solo los que siguen en la sala: los expulsados no cuentan ni votan. */
   members: Participant[];
   movies: MovieView[];
   myNominations: number;
@@ -37,8 +40,11 @@ export type RoomState = {
   /** Cuadro: vacío hasta que se sortea. */
   matches: MatchView[];
   rounds: number;
-  /** Avance de la ronda abierta, para que el host sepa a quién espera. */
-  roundProgress: { cast: number; expected: number } | null;
+  /**
+   * Avance de la ronda abierta, persona por persona: cuántos versus votó cada
+   * uno (nunca qué). Vacío si no hay versus abiertos.
+   */
+  voters: VoterProgress[];
   /** Cartelera final, ordenada por posición. */
   lineup: { position: number; movie: MovieView }[];
 };
@@ -62,10 +68,11 @@ export async function computeRoomVersion(room: Room): Promise<string> {
     .from(movies)
     .where(eq(movies.roomId, room.id));
 
+  // Solo los activos: una expulsión cambia la huella y refresca a todos.
   const [memberStats] = await db()
     .select({ total: count() })
     .from(participants)
-    .where(eq(participants.roomId, room.id));
+    .where(and(eq(participants.roomId, room.id), isNull(participants.kickedAt)));
 
   const fingerprint = {
     phase: room.phase,
@@ -89,15 +96,18 @@ export async function computeRoomVersion(room: Room): Promise<string> {
       .innerJoin(matches, eq(votes.matchId, matches.id))
       .where(eq(matches.roomId, room.id));
 
-    const [decidedStats] = await db()
-      .select({ total: count() })
+    const byStatus = await db()
+      .select({ status: matches.status, total: count() })
       .from(matches)
-      .where(and(eq(matches.roomId, room.id), eq(matches.status, "decided")));
+      .where(eq(matches.roomId, room.id))
+      .groupBy(matches.status);
+    const countOf = (status: string) => byStatus.find((row) => row.status === status)?.total ?? 0;
 
     return roomVersion({
       ...fingerprint,
       voteCount: voteStats.total,
-      decidedCount: decidedStats.total,
+      decidedCount: countOf("decided"),
+      tiedCount: countOf("tiebreak"),
     });
   }
 
@@ -111,15 +121,16 @@ export async function getRoomState(
   const room = await findRoomByCode(rawCode);
   if (!room) return null;
 
-  const members = await db()
+  const everyone = await db()
     .select()
     .from(participants)
     .where(eq(participants.roomId, room.id))
     .orderBy(asc(participants.createdAt));
 
-  const me = deviceToken
-    ? (members.find((p) => p.deviceToken === deviceToken) ?? null)
-    : null;
+  const mine = deviceToken ? everyone.find((p) => p.deviceToken === deviceToken) : undefined;
+  const kicked = Boolean(mine?.kickedAt);
+  const me = mine && !kicked ? mine : null;
+  const members = everyone.filter((p) => !p.kickedAt);
 
   const rows = await db()
     .select({
@@ -162,6 +173,7 @@ export async function getRoomState(
   const state: RoomState = {
     room,
     me,
+    kicked,
     members,
     movies: movieViews,
     myNominations: me ? rows.filter((row) => row.addedBy === me.id).length : 0,
@@ -171,7 +183,7 @@ export async function getRoomState(
     membersWhoSeeded: 0,
     matches: [],
     rounds: rows.length >= 2 ? totalRounds(bracketSize(rows.length)) : 0,
-    roundProgress: null,
+    voters: [],
     lineup: [],
   };
 
@@ -255,16 +267,25 @@ export async function getRoomState(
 
     const open = currentRound(allMatches).filter((match) => match.status === "open");
     if (open.length > 0) {
-      const [{ total }] = await db()
-        .select({ total: count() })
+      // Recuento por persona, sin `choice_movie_id`: quién falta, nunca qué votó.
+      const perVoter = await db()
+        .select({ participantId: votes.participantId, total: count() })
         .from(votes)
         .where(
           inArray(
             votes.matchId,
             open.map((match) => match.id),
           ),
-        );
-      state.roundProgress = { cast: total, expected: open.length * members.length };
+        )
+        .groupBy(votes.participantId);
+      const castBy = new Map(perVoter.map((row) => [row.participantId, row.total]));
+
+      state.voters = members.map((member) => ({
+        id: member.id,
+        nickname: member.nickname,
+        isHost: member.isHost,
+        cast: castBy.get(member.id) ?? 0,
+      }));
     }
   }
 

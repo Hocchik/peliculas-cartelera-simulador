@@ -36,8 +36,7 @@ export const matchStatus = pgEnum("match_status", [
 
 /**
  * Cómo se resolvió un versus. `bye` = pasó sin rival por cuadro incompleto.
- * `coinflip` ya no se produce: los empates los decide el host. Se conserva por
- * las salas que se jugaron con la regla anterior.
+ * `coinflip` = el host tiró la moneda en un empate (sale de `tiebreak_seed`).
  */
 export const decidedBy = pgEnum("decided_by", ["votes", "coinflip", "host", "bye"]);
 
@@ -88,6 +87,12 @@ export const participants = pgTable(
      * su unicidad es por sala y no global.
      */
     deviceToken: text("device_token").notNull(),
+    /**
+     * Si el host lo sacó de la sala. La fila se conserva a propósito: el índice
+     * (room_id, device_token) impide que ese navegador vuelva a entrar, y sus
+     * votos de cruces ya cerrados siguen cuadrando con el ganador grabado.
+     */
+    kickedAt: timestamp("kicked_at", { withTimezone: true }),
     lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull().defaultNow(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },

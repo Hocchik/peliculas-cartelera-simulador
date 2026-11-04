@@ -9,9 +9,6 @@ import type { DecidedBy, MatchStatus } from "../db/schema";
 /** Tope de nominaciones por sala. */
 export const MAX_MOVIES = 16;
 
-/** Cuántas cabezas de serie quedan protegidas del sorteo, como máximo. */
-const PROTECTED_SEEDS = 4;
-
 export type Nominee = {
   movieId: string;
   /** Votos de aprobación recibidos en la fase de siembra. */
@@ -134,9 +131,16 @@ export function seedPositions(size: number): number[] {
 // ---------------------------------------------------------------------------
 
 /**
- * El sorteo. Las más aprobadas quedan protegidas como cabezas de serie para que
- * no se eliminen entre ellas en la primera ronda; el resto se baraja de verdad.
- * Los byes recaen en las cabezas de serie, como en el Mundial.
+ * El sorteo. TODAS las películas se siembran por aprobaciones con la siembra
+ * estándar (`seedPositions`), no solo las primeras cuatro: así la más querida
+ * debuta contra la menos querida, y las favoritas se van eliminando entre
+ * ellas lo más tarde posible —la 1 y la 2 solo en la final, el top 4 recién en
+ * semis, el top 8 en cuartos—. Antes solo se protegía al top 4 y el resto se
+ * barajaba, de modo que la 5.ª más querida podía caer contra la 1.ª de entrada.
+ *
+ * El azar (reproducible, con `draw_seed`) desempata aprobaciones iguales, que
+ * con 4 a 10 personas votando son lo habitual. Los byes recaen en las mejor
+ * sembradas, como en el Mundial.
  */
 export function drawSlots(nominees: readonly Nominee[], drawSeed: number): Slot[] {
   const size = bracketSize(nominees.length);
@@ -146,13 +150,7 @@ export function drawSlots(nominees: readonly Nominee[], drawSeed: number): Slot[
   // al azar y no por orden de inserción (`sort` es estable en JS).
   const ranked = shuffle(nominees, rng).sort((a, b) => b.approvals - a.approvals);
 
-  const protectedCount = Math.min(PROTECTED_SEEDS, size / 2);
-  const ordered = [
-    ...ranked.slice(0, protectedCount),
-    ...shuffle(ranked.slice(protectedCount), rng),
-  ];
-
-  return seedPositions(size).map((seed) => ordered[seed - 1]?.movieId ?? null);
+  return seedPositions(size).map((seed) => ranked[seed - 1]?.movieId ?? null);
 }
 
 /**
@@ -182,8 +180,8 @@ export function initialMatches(slots: readonly Slot[]): BracketMatch[] {
 }
 
 /**
- * Resuelve un cruce por votos. Devuelve `null` si hay empate: en ese caso no lo
- * decide el azar sino el host, desde la propia pantalla del versus.
+ * Resuelve un cruce por votos. Devuelve `null` si hay empate: en ese caso no se
+ * resuelve solo; el host elige o tira la moneda (`coinflip`) desde el versus.
  */
 export function resolveMatch(
   match: Pick<BracketMatch, "movieAId" | "movieBId">,
@@ -203,6 +201,29 @@ export function resolveMatch(
   if (votesA > votesB) return { winnerId: movieAId, decidedBy: "votes" };
   if (votesB > votesA) return { winnerId: movieBId, decidedBy: "votes" };
   return null;
+}
+
+/** FNV-1a de 32 bits: convierte el id de un cruce en un número estable. */
+function hashString(value: string): number {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < value.length; i++) {
+    hash ^= value.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return hash >>> 0;
+}
+
+/**
+ * Moneda al aire para un empate. Sale de `tiebreak_seed` mezclada con la clave
+ * del cruce: la misma moneda cae siempre del mismo lado (un refresh no la
+ * cambia) y cada cruce tiene la suya, aunque la sala tenga una sola semilla.
+ */
+export function coinflip(
+  match: { key: string; movieAId: string; movieBId: string },
+  tiebreakSeed: number,
+): MatchOutcome {
+  const heads = createRng((tiebreakSeed ^ hashString(match.key)) >>> 0)() < 0.5;
+  return { winnerId: heads ? match.movieAId : match.movieBId, decidedBy: "coinflip" };
 }
 
 /**
