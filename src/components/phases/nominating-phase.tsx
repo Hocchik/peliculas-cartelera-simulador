@@ -1,3 +1,5 @@
+import { Lock } from "lucide-react";
+
 import { MovieSearch } from "@/components/movie/movie-search";
 import { PosterImage } from "@/components/movie/poster-image";
 import { RemoveMovieButton } from "@/components/movie/remove-movie-button";
@@ -78,7 +80,12 @@ export function NominatingPhase({ state }: { state: RoomState }) {
             code={room.code}
             action={startSeeding}
             label="Cerrar nominaciones y pasar a la siembra"
-            confirm={`Se cierran las nominaciones con ${movies.length} películas. Después nadie podrá agregar ni entrar a la sala. ¿Seguimos?`}
+            confirm={{
+              title: "¿Cerramos las nominaciones?",
+              description: `Pasan ${movies.length} películas a la siembra. Después nadie podrá agregar más ni entrar a la sala.`,
+              confirmLabel: "Cerrar y pasar a la siembra",
+              icon: <Lock />,
+            }}
           />
         </div>
       )}

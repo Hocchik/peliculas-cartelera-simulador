@@ -1,3 +1,5 @@
+import { Shuffle, TriangleAlert } from "lucide-react";
+
 import { startDraw } from "@/app/sala/[code]/actions";
 import { HostButton } from "@/components/room/host-button";
 import { ApprovalCard } from "@/components/seeding/approval-card";
@@ -17,8 +19,8 @@ export function SeedingPhase({ state }: { state: RoomState }) {
         <CardHeader>
           <CardTitle>¿Cuáles verías?</CardTitle>
           <CardDescription>
-            Marca todas las que estarías dispuesto a ver, sin límite. Esto decide qué películas
-            quedan de cabeza de serie y no se cruzan en la primera ronda.
+            Marca todas las que estarías dispuesto a ver, sin límite. Esto ordena el cuadro: las
+            más queridas no se cruzan entre ellas hasta el final.
           </CardDescription>
         </CardHeader>
         <CardContent className="text-muted-foreground text-sm">
@@ -48,8 +50,20 @@ export function SeedingPhase({ state }: { state: RoomState }) {
             label="Sortear el cuadro"
             confirm={
               missing > 0
-                ? `Todavía faltan ${missing} por marcar. Si sorteas ahora, sus preferencias no cuentan. ¿Sorteamos?`
-                : "Se cierra la siembra y se sortea el cuadro. Esto no se puede deshacer. ¿Sorteamos?"
+                ? {
+                    title: `Faltan ${missing} por marcar`,
+                    description:
+                      "Si sorteas ahora, sus preferencias no cuentan para ordenar el cuadro. El sorteo no se puede deshacer.",
+                    confirmLabel: "Sortear igual",
+                    icon: <TriangleAlert />,
+                  }
+                : {
+                    title: "¿Sorteamos el cuadro?",
+                    description:
+                      "Se cierra la siembra y se arma el cuadro con lo que aprobó cada uno. No se puede deshacer.",
+                    confirmLabel: "Sortear",
+                    icon: <Shuffle />,
+                  }
             }
           />
         </div>

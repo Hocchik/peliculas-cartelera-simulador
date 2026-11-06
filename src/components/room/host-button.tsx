@@ -5,10 +5,13 @@ import { Loader2 } from "lucide-react";
 
 import type { ActionResult } from "@/app/sala/[code]/actions";
 import { Button } from "@/components/ui/button";
+import { ConfirmDialog, type ConfirmCopy } from "@/components/ui/confirm-dialog";
 
 /**
- * Botón para las acciones del host. `confirm` está pensado para el cierre
- * forzado de ronda: es irreversible y se dispara con el pulgar desde el móvil.
+ * Botón para las acciones del host. Con `confirm`, antes de actuar abre un
+ * diálogo con el texto de esa acción: casi todas son irreversibles y se
+ * disparan con el pulgar desde el celular. Si el servidor rechaza la acción,
+ * el error aparece dentro del diálogo, donde el host está mirando.
  */
 export function HostButton({
   code,
@@ -20,11 +23,21 @@ export function HostButton({
   code: string;
   action: (code: string) => Promise<ActionResult>;
   label: string;
-  confirm?: string;
+  confirm?: ConfirmCopy;
   variant?: "default" | "secondary" | "destructive" | "outline";
 }) {
+  const [open, setOpen] = useState(false);
   const [pending, start] = useTransition();
   const [error, setError] = useState<string | null>(null);
+
+  function run() {
+    setError(null);
+    start(async () => {
+      const result = await action(code);
+      if (result.ok) setOpen(false);
+      else setError(result.error);
+    });
+  }
 
   return (
     <div className="space-y-1">
@@ -32,18 +45,26 @@ export function HostButton({
         variant={variant}
         disabled={pending}
         onClick={() => {
-          if (confirm && !window.confirm(confirm)) return;
+          if (!confirm) return run();
           setError(null);
-          start(async () => {
-            const result = await action(code);
-            if (!result.ok) setError(result.error);
-          });
+          setOpen(true);
         }}
       >
-        {pending && <Loader2 className="size-4 animate-spin" />}
+        {pending && !open && <Loader2 className="size-4 animate-spin" />}
         {label}
       </Button>
-      {error && <p className="text-destructive text-sm">{error}</p>}
+      {error && !open && <p className="text-destructive text-sm">{error}</p>}
+
+      {confirm && (
+        <ConfirmDialog
+          {...confirm}
+          open={open}
+          pending={pending}
+          error={error}
+          onConfirm={run}
+          onCancel={() => setOpen(false)}
+        />
+      )}
     </div>
   );
 }

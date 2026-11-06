@@ -1,4 +1,4 @@
-import { Check, Scale } from "lucide-react";
+import { Check, Flag, Scale } from "lucide-react";
 
 import { forceCloseRound } from "@/app/sala/[code]/actions";
 import { HostButton } from "@/components/room/host-button";
@@ -101,9 +101,25 @@ export function RoundStatus({
               action={forceCloseRound.bind(null, round)}
               label="Cerrar la ronda igual"
               variant="secondary"
-              confirm={`Faltan ${pending} ${pending === 1 ? "voto" : "votos"} de ${missing
-                .map((voter) => voter.nickname)
-                .join(", ")}. Los ${openCount} versus abiertos se resolverán con lo que haya, y los empates los decides tú. ¿Cerramos?`}
+              confirm={{
+                title: "¿Cerramos la ronda igual?",
+                description: `Faltan ${pending} ${pending === 1 ? "voto" : "votos"}. Los ${openCount} versus abiertos se resuelven con lo que haya, y los empates los decides tú.`,
+                confirmLabel: "Cerrar la ronda",
+                icon: <Flag />,
+                // Quiénes faltan, con cuántos versus cada uno: el host decide
+                // mirando a quién deja afuera, no un número.
+                details: (
+                  <PeopleRow label="Faltan">
+                    {missing.map((voter) => (
+                      <Person key={voter.id} voter={voter} isMe={voter.id === meId}>
+                        <span className="bg-primary text-primary-foreground rounded-full px-1.5 text-[10px] font-semibold tabular-nums">
+                          {openCount - voter.cast}
+                        </span>
+                      </Person>
+                    ))}
+                  </PeopleRow>
+                ),
+              }}
             />
           )}
         </div>

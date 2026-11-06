@@ -1,4 +1,4 @@
-import { Settings2 } from "lucide-react";
+import { RotateCcw, Settings2, Trash2 } from "lucide-react";
 
 import { deleteRoom, resetRoom } from "@/app/sala/[code]/actions";
 import { HostButton } from "@/components/room/host-button";
@@ -19,7 +19,14 @@ export function HostControls({ code, phase }: { code: string; phase: RoomPhase }
             action={resetRoom}
             label="Reiniciar el torneo"
             variant="outline"
-            confirm="Se borran la siembra, el cuadro, los votos y la cartelera, y la sala vuelve a nominaciones. Las películas y la gente se quedan. ¿Reiniciamos?"
+            confirm={{
+              title: "¿Reiniciamos el torneo?",
+              description:
+                "Se borran la siembra, el cuadro, los votos y la cartelera, y la sala vuelve a nominaciones. Las películas y la gente se quedan.",
+              confirmLabel: "Reiniciar el torneo",
+              tone: "destructive",
+              icon: <RotateCcw />,
+            }}
           />
         )}
 
@@ -28,7 +35,14 @@ export function HostControls({ code, phase }: { code: string; phase: RoomPhase }
           action={deleteRoom}
           label="Cerrar la sala"
           variant="destructive"
-          confirm="Se borra la sala entera con todo lo que tiene dentro, y el enlace deja de funcionar para todos. Esto no se puede deshacer. ¿Cerramos?"
+          confirm={{
+            title: "¿Cerramos la sala?",
+            description:
+              "Se borra entera, con todo lo que tiene dentro, y el enlace deja de funcionar para todos. No se puede deshacer.",
+            confirmLabel: "Cerrar la sala para todos",
+            tone: "destructive",
+            icon: <Trash2 />,
+          }}
         />
       </div>
 

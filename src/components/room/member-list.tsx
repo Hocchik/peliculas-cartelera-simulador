@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useState, useTransition } from "react";
 import { Ban, Crown, Loader2, UserMinus, Users, X } from "lucide-react";
 
 import { kickParticipant } from "@/app/sala/[code]/actions";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Modal } from "@/components/ui/modal";
 import type { MemberView } from "@/lib/room-types";
 
 /**
@@ -75,14 +76,6 @@ function KickDialog({
   const [pending, start] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
-    };
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [onClose]);
-
   function kick(ban: boolean) {
     setError(null);
     start(async () => {
@@ -93,17 +86,8 @@ function KickDialog({
   }
 
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="kick-title"
-      className="bg-background/80 fixed inset-0 z-50 grid place-items-center p-4 backdrop-blur-sm"
-      onClick={onClose}
-    >
-      <div
-        className="bg-card w-full max-w-sm space-y-4 rounded-xl border p-5 shadow-lg"
-        onClick={(event) => event.stopPropagation()}
-      >
+    <Modal open onClose={onClose} busy={pending} labelledBy="kick-title">
+      <div className="space-y-4">
         <div className="space-y-1">
           <h2 id="kick-title" className="text-lg font-semibold">
             ¿Qué hacemos con {member.nickname}?
@@ -152,6 +136,6 @@ function KickDialog({
           Cancelar
         </Button>
       </div>
-    </div>
+    </Modal>
   );
 }

@@ -320,6 +320,12 @@ para que los demás no se queden mirando algo que ya no existe.
   sube girando de punta a punta, cae, rebota, se tambalea y la cámara se acerca a la cara que
   salió (cara = A, sello = B). Subida y giro van en capas separadas para que el giro no "frene"
   en lo alto.
+- **Nada de `window.confirm()` ni `alert()`.** Las confirmaciones van con `ConfirmDialog`
+  (`HostButton` lo abre con su prop `confirm`), sobre `Modal`, que usa `<dialog>` +
+  `showModal()`: foco atrapado, Escape y fondo inerte los da el navegador. En el celular sale
+  como hoja desde abajo. El botón de confirmar nombra la acción ("Cerrar la ronda", no
+  "Aceptar"), `Cancelar` va primero en el DOM para que un Enter apurado no confirme, y si el
+  servidor rechaza, el error se ve dentro del diálogo.
 - Mutaciones vía **Server Actions**; los Route Handlers quedan para el proxy de TMDB.
 - Toda la copy de la interfaz en **español**, tono informal ("Tu voto", "Faltan 3 por votar").
 - **Títulos bilingües.** Buscar en TMDB con `language=es-MX` y guardar `title` (español) y
@@ -375,11 +381,8 @@ sorteo animado, bracket con votación en vivo, podio. *Con esto ya resuelve el p
 
 **Siguientes pasos**
 
-1. Reemplazar `window.confirm` del `HostButton` por un `AlertDialog` de shadcn. Son cuatro
-   acciones destructivas ya (cerrar nominaciones, sortear, cerrar ronda, reiniciar, cerrar
-   sala) y el `confirm` del navegador se ve pobre para lo que decide.
-2. Fechas en la cartelera.
-3. Que el host pueda reabrir un cruce ya cerrado (hoy su poder termina cuando la ronda
+1. Fechas en la cartelera.
+2. Que el host pueda reabrir un cruce ya cerrado (hoy su poder termina cuando la ronda
    avanza, para no dejar el cuadro inconsistente).
 
 **Deuda conocida**
